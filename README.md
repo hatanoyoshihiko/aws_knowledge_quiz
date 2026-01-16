@@ -53,7 +53,7 @@ sam build
 sam deploy \
   --stack-name "$BACKEND_STACK_NAME" \
   --region "$AWS_REGION" \
-  --s3-bucket aws-sam-cli-managed-default-xxx \
+  --resolve-s3 \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
     StageName=dev  \
@@ -86,7 +86,7 @@ sam build
 sam deploy \
   --stack-name "$FRONTEND_STACK_NAME" \
   --region "$AWS_REGION" \
-  --s3-bucket aws-sam-cli-managed-default-xxx \
+  --resolve-s3 \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
     CloudFrontToApiHeaderValue="$API_HEADER_VALUE" \
