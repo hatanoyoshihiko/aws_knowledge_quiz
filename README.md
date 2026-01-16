@@ -193,7 +193,7 @@ flowchart LR
 
   FEH -.->|17 GET /scores| GW
   FET -.->|17 GET /scores| GW
-  GW -->|18 Invoke| GS[get_scores]
+  GW -->|19 Invoke| GS[get_scores]
   GS --> DDB
 ```
 
@@ -213,20 +213,20 @@ sequenceDiagram
   participant DB as DynamoDB
 
   Host->>FEH: 「次のクイズ」クリック
-  FEH->>GW: POST /quiz/next
-  GW->>NQ: Invoke
+  FEH->>GW: POST /quiz/next (構成図:2)
+  GW->>NQ: Invoke (構成図:3)
 
-  NQ->>MCP: ナレッジ検索
-  MCP-->>NQ: ナレッジ要点
+  NQ->>MCP: ナレッジ検索 (構成図:4)
+  MCP-->>NQ: ナレッジ要点 (構成図:4)
 
-  NQ->>BR: ナレッジ + 条件でクイズ生成
-  BR-->>NQ: クイズ（問題/選択肢/正解/根拠）
+  NQ->>BR: ナレッジ + 条件でクイズ生成 (構成図:5)
+  BR-->>NQ: クイズ（問題/選択肢/正解/根拠）(構成図:5)
 
-  NQ->>DB: currentQuiz / 状態保存
-  DB-->>NQ: OK
+  NQ->>DB: currentQuiz / 状態保存 (構成図:6)
+  DB-->>NQ: OK (構成図:6)
 
-  NQ-->>GW: quiz JSON
-  GW-->>FEH: quiz JSON
+  NQ-->>GW: quiz JSON (構成図:7)
+  GW-->>FEH: quiz JSON (構成図:8)
 ```
 
 - 「採点する」ボタンを押したとき
@@ -243,23 +243,23 @@ sequenceDiagram
   participant BR as Bedrock
 
   Team->>FET: 回答入力・送信
-  FET->>GW: POST /quiz/judge
-  GW->>JA: Invoke
+  FET->>GW: POST /quiz/judge (構成図:9)
+  GW->>JA: Invoke (構成図:10)
 
-  JA->>DB: クイズ情報取得
-  DB-->>JA: quiz context
+  JA->>DB: クイズ情報取得 (構成図:11)
+  DB-->>JA: quiz context (構成図:11)
 
-  JA->>MCP: 根拠ナレッジ取得
-  MCP-->>JA: ナレッジ要点
+  JA->>MCP: 根拠ナレッジ取得 (構成図:12)
+  MCP-->>JA: ナレッジ要点 (構成図:12)
 
-  JA->>BR: 回答判定依頼（rubric）
-  BR-->>JA: score / feedback
+  JA->>BR: 回答判定依頼（rubric）(構成図:13)
+  BR-->>JA: score / feedback (構成図:13)
 
-  JA->>DB: スコア・履歴保存
-  DB-->>JA: OK
+  JA->>DB: スコア・履歴保存 (構成図:14)
+  DB-->>JA: OK (構成図:14)
 
-  JA-->>GW: result JSON
-  GW-->>FET: result JSON
+  JA-->>GW: result JSON (構成図:15)
+  GW-->>FET: result JSON (構成図:16)
 ```
 
 - クイズの表示同期（全クライアント）
@@ -269,19 +269,25 @@ sequenceDiagram
   autonumber
   participant FE as Frontend
   participant GW as API Gateway
+  participant GC as get_current_quiz
+  participant GS as get_scores
   participant DB as DynamoDB
 
-  loop 定期ポーリング
-    FE->>GW: GET /quiz/current
-    GW->>DB: currentQuiz 取得
-    DB-->>GW: quiz
+  loop 定期ポーリング（現在クイズ）
+    FE->>GW: GET /quiz/current (構成図:17)
+    GW->>GC: Invoke (構成図:18)
+    GC->>DB: Get currentQuiz
+    DB-->>GC: quiz
+    GC-->>GW: quiz
     GW-->>FE: quiz
   end
 
-  loop 定期ポーリング
-    FE->>GW: GET /scores
-    GW->>DB: scores 取得
-    DB-->>GW: scores
+  loop 定期ポーリング（スコア）
+    FE->>GW: GET /scores (構成図:17)
+    GW->>GS: Invoke (構成図:19)
+    GS->>DB: Get scores
+    DB-->>GS: scores
+    GS-->>GW: scores
     GW-->>FE: scores
   end
 ```
