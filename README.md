@@ -119,71 +119,82 @@ aws s3 sync public "s3://$BUCKET_NAME/" --delete
 
 ## 仕様
 
-### システム全体構成図
+### システム構成図
 
 > ※ 本図は処理全体の俯瞰を目的としており、
 > クイズ状態・スコアの同期（GET /quiz/current, /scores）は
 > ポーリングとして簡略表現しています。
 > 詳細な処理順は以下のシーケンス図を参照してください。
 
+### 1) エッジ＋API入口
+
 ```mermaid
 flowchart LR
-    %% ===== Edge / Frontend =====
-    subgraph Edge["Edge / Frontend"]
-        User[User Browser]
-        CF[CloudFront]
-        FEH[Host UI<br/>host.html]
-        FET[Team UI<br/>team.html]
+  subgraph Edge["Edge / Frontend"]
+    User[User Browser] -->|0 Access| CF[CloudFront]
+    CF -->|1 UI| FEH[Host UI<br/>host.html]
+    CF -->|1' UI| FET[Team UI<br/>team.html]
+  end
 
-        User -->|0 Access| CF
-        CF -->|1 UI| FEH
-        CF -->|1' UI| FET
-    end
+  subgraph API["API Gateway"]
+    GW[API Gateway<br/>HTTP API]
+  end
 
-    %% ===== API / Control =====
-    subgraph API["API / Control Layer"]
-        GW[API Gateway<br/>HTTP API]
+  FEH -->|2 POST /quiz/next| GW
+  FET -->|9 POST /quiz/judge| GW
+  FEH -.->|17 GET /quiz/current, /scores| GW
+  FET -.->|17 GET /quiz/current, /scores| GW
+```
 
-        NQ[get_next_quiz]
-        JA[judge_answer]
-        GC[get_current_quiz]
-        GS[get_scores]
-    end
+### 2) 出題フロー（NextQuiz）
 
-    %% ===== AI / Data =====
-    subgraph Core["AI / Data Layer"]
-        MCP[AWS Knowledge<br/>MCP Server]
-        BR[Amazon Bedrock<br/>LLM]
-        DDB[DynamoDB<br/>Quiz / State / Scores]
-    end
+```mermaid
+flowchart LR
+  FEH[Host UI] -->|2 POST /quiz/next| GW[API Gateway]
+  GW -->|3 Invoke| NQ[get_next_quiz]
 
-    %% ===== Quiz generation =====
-    FEH -->|2 POST /quiz/next| GW
-    GW -->|3| NQ
-    NQ -->|4 Knowledge| MCP
-    NQ -->|5 Generate| BR
-    NQ -->|6 Save| DDB
-    NQ -->|7 Quiz| GW
-    GW -->|8 Response| FEH
+  subgraph Core["AI / Data"]
+    MCP[AWS Knowledge MCP]
+    BR[Bedrock]
+    DDB[DynamoDB]
+  end
 
-    %% ===== Judge =====
-    FET -->|9 POST /quiz/judge| GW
-    GW -->|10| JA
-    JA -->|11 Load| DDB
-    JA -->|12 Knowledge| MCP
-    JA -->|13 Judge| BR
-    JA -->|14 Save| DDB
-    JA -->|15 Result| GW
-    GW -->|16 Response| FET
+  NQ -->|4 Knowledge| MCP
+  NQ -->|5 Generate| BR
+  NQ -->|6 Save| DDB
+  NQ -->|7 Quiz| GW
+  GW -->|8 Response| FEH
+```
 
-    %% ===== Sync =====
-    FEH -.->|17 GET current/scores| GW
-    FET -.->|17 GET current/scores| GW
-    GW -->|18| GC
-    GW -->|18| GS
-    GC --> DDB
-    GS --> DDB
+### 3) 採点＋同期（Judge / Sync）
 
+```mermaid
+flowchart LR
+  FET[Team UI] -->|9 POST /quiz/judge| GW[API Gateway]
+  GW -->|10 Invoke| JA[judge_answer]
+
+  subgraph Core["AI / Data"]
+    MCP[AWS Knowledge MCP]
+    BR[Bedrock]
+    DDB[DynamoDB]
+  end
+
+  JA -->|11 Load| DDB
+  JA -->|12 Knowledge| MCP
+  JA -->|13 Judge| BR
+  JA -->|14 Save| DDB
+  JA -->|15 Result| GW
+  GW -->|16 Response| FET
+
+  FEH[Host UI] -.->|17 GET /quiz/current| GW
+  FET -.->|17 GET /quiz/current| GW
+  GW -->|18 Invoke| GC[get_current_quiz]
+  GC --> DDB
+
+  FEH -.->|17 GET /scores| GW
+  FET -.->|17 GET /scores| GW
+  GW -->|18 Invoke| GS[get_scores]
+  GS --> DDB
 ```
 
 ### シーケンス図
