@@ -47,10 +47,10 @@ export function setResult(result) {
   const r = result.result;
   if (r === "correct") {
     badge.textContent = "正解";
-    badge.className = "rounded-full bg-emerald-500/15 px-2.5 py-1 text-base font-semibold text-emerald-200 ring-1 ring-emerald-500/30";
+    badge.className = "rounded-full bg-emerald-500/15 px-2.5 py-1 text-sm font-semibold text-emerald-200 ring-1 ring-emerald-500/30";
   } else if (r === "close") {
     badge.textContent = "おしい";
-    badge.className = "rounded-full bg-amber-500/15 px-2.5 py-1 text-sm font-semibold text-amber-200 ring-1 ring-amber-500/30";
+    badge.className = "rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-semibold text-amber-200 ring-1 ring-amber-500/30";
   } else {
     badge.textContent = "不正解";
     badge.className = "rounded-full bg-rose-500/15 px-2.5 py-1 text-xs font-semibold text-rose-200 ring-1 ring-rose-500/30";
