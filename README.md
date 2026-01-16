@@ -277,7 +277,7 @@ sequenceDiagram
 
 ## 主なロジック
 
-[logic.md](./docs/logic.md) を
+クイズや採点アルゴリズムは [logic.md](./docs/logic.md) を参照下さい。
 
 ## クイズの出題内容を調整する場合
 
