@@ -1,0 +1,6 @@
+{
+  "apiEndpoint": ".",
+  "defaultCategory": "security",
+  "defaultLevel": 100,
+  "requestTimeoutMs": 45000
+}

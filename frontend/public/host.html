@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AWS Quiz | Host</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="color-scheme" content="light dark">
+
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <!-- Top bar -->
+  <div class="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+      <div class="flex items-center gap-3">
+        <button id="sidebarToggle" class="md:hidden rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold hover:bg-slate-800">
+          メニュー
+        </button>
+        <div>
+          <div class="flex items-center gap-2">
+            <div class="h-2.5 w-2.5 rounded-full bg-emerald-400" aria-hidden="true"></div>
+            <h1 class="text-sm font-semibold tracking-tight">AWSクイズアプリ（出題者）</h1>
+          </div>
+          <p class="text-xs text-slate-400">Host only: 出題・進行</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <div id="configBadge" class="hidden sm:inline-flex items-center rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-slate-300 ring-1 ring-slate-800">
+          設定読み込み中…
+        </div>
+        <a href="/index.html" class="hidden sm:inline-flex items-center rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-900">チーム画面</a>
+        <button id="nextBtnTop" class="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:opacity-60">
+          <span class="inline-block h-2 w-2 rounded-full bg-slate-950/80"></span>
+          次のクイズ
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="pointer-events-none fixed bottom-4 right-4 z-50">
+    <div id="toast" class="hidden max-w-sm rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 text-sm text-slate-200 shadow-xl backdrop-blur fade-in"></div>
+  </div>
+
+  <!-- Layout (2 columns) -->
+  <div class="mx-auto grid max-w-7xl grid-cols-12 gap-4 px-4 py-6">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="col-span-12 hidden md:block md:col-span-4">
+      <div class="space-y-4">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-slate-100">コントロール</h2>
+            <span class="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-200">host</span>
+          </div>
+
+          <div class="mt-4 space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-300">Host Key（/quiz/next 用）</label>
+              <input id="hostKey" type="password" placeholder="出題者キー" autocomplete="off"
+                class="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-300" />
+              <p class="mt-1 text-[11px] text-slate-500">※キーが未設定/不一致の場合、出題は 403 になります。</p>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300">カテゴリ</label>
+              <select id="category" class="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300">
+                <option value="security">security</option>
+                <option value="networking">networking</option>
+                <option value="storage">storage</option>
+                <option value="serverless">serverless</option>
+                <option value="well-architected">well-architected</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300">レベル（AWSセッション）</label>
+              <select id="level" class="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300">
+                <option value="100">100（基礎）</option>
+                <option value="200">200（設計）</option>
+                <option value="300">300（実装/運用）</option>
+                <option value="400">400（専門家）</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-1 gap-2">
+              <button id="nextBtn" class="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:opacity-60">
+                次のクイズ
+              </button>
+            </div>
+
+            <div class="rounded-xl border border-slate-800 bg-slate-950 p-3">
+              <div class="text-xs font-semibold text-slate-200">接続状態</div>
+              <div class="mt-2 flex items-center gap-2">
+                <span id="connDot" class="inline-block h-2.5 w-2.5 rounded-full bg-slate-500"></span>
+                <span id="connText" class="text-xs text-slate-300">未接続</span>
+              </div>
+              <div class="mt-2 text-[11px] text-slate-400 break-all" id="apiText">apiEndpoint: -</div>
+              <div class="mt-1 text-[11px] text-slate-500 break-all" id="timeoutText">timeoutMs: -</div>
+            </div>
+
+            <div class="rounded-xl border border-slate-800 bg-slate-950 p-3">
+              <div class="text-xs font-semibold text-slate-200">ショートカット</div>
+              <ul class="mt-2 space-y-1 text-xs text-slate-300">
+                <li><span class="font-semibold text-slate-100">N</span>：次のクイズ</li>
+              </ul>
+            </div>
+
+            <div id="globalMsg" class="hidden rounded-xl border border-amber-900/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"></div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm">
+          <h2 class="text-sm font-semibold text-slate-100">使い方</h2>
+          <ul class="mt-3 space-y-2 text-xs text-slate-300">
+            <li>1) Host Key を入力</li>
+            <li>2) カテゴリ/レベルを選択</li>
+            <li>3) 「次のクイズ」で出題</li>
+            <li>チーム画面は <span class="font-semibold text-slate-100">/index.html</span> を開いて待機します</li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="col-span-12 md:col-span-8">
+      <div class="space-y-4">
+        <!-- Question card -->
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <span id="qCategoryBadge" class="hidden rounded-full bg-slate-950 px-2.5 py-1 text-xs font-semibold text-slate-200 ring-1 ring-slate-800"></span>
+                <span id="qLevelBadge" class="hidden rounded-full bg-slate-950 px-2.5 py-1 text-xs font-semibold text-slate-200 ring-1 ring-slate-800"></span>
+              </div>
+              <h2 id="qTitle" class="mt-3 text-xl font-bold tracking-tight">次のクイズを出題してください</h2>
+              <p id="qBody" class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
+                左の「次のクイズ」を押すと問題が生成され、チーム画面が自動で同期します。
+              </p>
+            </div>
+
+            <div class="text-right">
+              <div class="text-[11px] text-slate-400" id="qMeta">—</div>
+              <div class="mt-2 flex items-center justify-end gap-2">
+                <span class="rounded-full bg-slate-950 px-2 py-1 text-[11px] font-semibold text-slate-300 ring-1 ring-slate-800">questionId</span>
+                <span id="qId" class="max-w-[140px] truncate text-[11px] text-slate-400">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 flex flex-wrap items-center gap-2">
+            <button id="copyQidBtn" class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:opacity-60">
+              IDコピー
+            </button>
+            <button id="resetBtn" class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500">
+              画面リセット
+            </button>
+            <div id="loadingPill" class="ml-auto hidden items-center gap-2 rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300 ring-1 ring-slate-800">
+              <span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-600 border-t-slate-200"></span>
+              通信中…
+            </div>
+          </div>
+        </section>
+        <!-- Scoreboard card -->
+        <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-sm">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-100">Scoreboard</h3>
+              <div class="text-xs text-slate-400" id="scoreboardMeta">—</div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button id="scoreboardRefreshBtn" class="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm hover:bg-slate-800">
+                更新
+              </button>
+              <label class="flex items-center gap-2 text-xs text-slate-300">
+                <input id="scoreboardAuto" type="checkbox" class="accent-slate-200" checked />
+                自動更新
+              </label>
+            </div>
+          </div>
+
+          <div class="mt-4 space-y-2" id="scoreboardList"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="/js/mainHost.js"></script>
+</body>
+</html>

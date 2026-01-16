@@ -1,0 +1,180 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: aws-quiz-app frontend (S3 + CloudFront + config.json)
+
+Parameters:
+  # === CloudFront -> API Gateway (backend) 接続用 ===
+  ApiGatewayDomainName:
+    Type: String
+    Description: "API Gatewayのinvoke URLのドメイン部分（例: abc123.execute-api.ap-northeast-1.amazonaws.com）"
+  ApiGatewayOriginPath:
+    Type: String
+    Default: ""
+    Description: "API GatewayのステージをOrigin Pathで吸収したい場合に指定（例: /prod）。不要なら空のまま。"
+  CloudFrontToApiHeaderName:
+    Type: String
+    Default: "X-From-CloudFront"
+    Description: "CloudFrontがオリジン(API)へ付与するカスタムヘッダー名"
+  CloudFrontToApiHeaderValue:
+    Type: String
+    NoEcho: true
+    Description: "CloudFrontがオリジン(API)へ付与するカスタムヘッダー値（十分ランダムな値を推奨）"
+  PriceClass:
+    Type: String
+    Default: PriceClass_200
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+    Description: "CloudFront price class"
+
+  # === Geo restriction (allow list) ===
+  GeoRestrictionLocations:
+    Type: CommaDelimitedList
+    Default: JP
+    Description: "CloudFront geographic restrictions allow list (ISO 3166-1 alpha-2). Default: JP"
+
+Resources:
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+
+  FrontendOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Cache Policy: 静的サイト用（クエリ/ヘッダ/クッキーを基本転送しない）
+  FrontendCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${AWS::StackName}-frontend-cache"
+        DefaultTTL: 86400
+        MaxTTL: 31536000
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+
+  # Origin Request Policy: 何も転送しない（静的配信用）
+  FrontendOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "${AWS::StackName}-frontend-orp"
+        CookiesConfig:
+          CookieBehavior: none
+        HeadersConfig:
+          HeaderBehavior: none
+        QueryStringsConfig:
+          QueryStringBehavior: none
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        IPV6Enabled: false
+        PriceClass: !Ref PriceClass
+
+        # ★ Geo restriction allow list
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: whitelist
+            Locations: !Ref GeoRestrictionLocations
+
+        Origins:
+          - Id: FrontendS3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            S3OriginConfig: {}
+            OriginAccessControlId: !Ref FrontendOAC
+
+          # API Gateway を CloudFront のオリジンとして登録
+          - Id: BackendApiOrigin
+            DomainName: !Ref ApiGatewayDomainName
+            OriginPath: !Ref ApiGatewayOriginPath
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              HTTPSPort: 443
+            # CloudFront -> API にだけ付くカスタムヘッダー
+            OriginCustomHeaders:
+              - HeaderName: !Ref CloudFrontToApiHeaderName
+                HeaderValue: !Ref CloudFrontToApiHeaderValue
+
+        DefaultCacheBehavior:
+          TargetOriginId: FrontendS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          Compress: true
+          CachePolicyId: !Ref FrontendCachePolicy
+          OriginRequestPolicyId: !Ref FrontendOriginRequestPolicy
+
+        # /quiz/* と /scores* は API へルーティング
+        CacheBehaviors:
+          - PathPattern: "/quiz/*"
+            TargetOriginId: BackendApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            # CloudFront managed policy: CachingDisabled
+            CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+            # CloudFront managed policy: AllViewerExceptHostHeader
+            OriginRequestPolicyId: "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+
+          - PathPattern: "/scores*"
+            TargetOriginId: BackendApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD, OPTIONS]
+            Compress: true
+            # CloudFront managed policy: CachingDisabled
+            CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+            # CloudFront managed policy: AllViewerExceptHostHeader
+            OriginRequestPolicyId: "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action:
+              - s3:GetObject
+            Resource: !Sub "${FrontendBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
+
+Outputs:
+  CloudFrontUrl:
+    Value: !Sub "https://${FrontendDistribution.DomainName}"
+  FrontendBucketName:
+    Value: !Ref FrontendBucket
+  CloudFrontToApiHeaderName:
+    Value: !Ref CloudFrontToApiHeaderName
