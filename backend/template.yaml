@@ -1,0 +1,286 @@
+# 重要：フロントへ返す questionId は QuestionHash（=DDB PK）とする
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: aws-quiz-app backend (Python 3.14)
+
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+
+  BedrockModelId:
+    Type: String
+    Default: jp.anthropic.claude-sonnet-4-5-20250929-v1:0
+
+  FrontendOrigin:
+    Type: String
+    Default: https://CHANGE_ME_FRONTEND_DOMAIN
+  CloudFrontToApiHeaderValue:
+    Type: String
+    NoEcho: true
+    Default: CHANGE_ME_CLOUDFRONT_SECRET
+
+  McpEndpoint:
+    Type: String
+    Default: https://knowledge-mcp.global.api.aws
+
+  HostKey:
+    Type: String
+    NoEcho: true
+    Default: CHANGE_ME_HOST_KEY
+
+Globals:
+  Function:
+    Runtime: python3.14
+    Timeout: 30
+    MemorySize: 512
+    Tracing: Active
+    Architectures:
+      - arm64
+    Environment:
+      Variables:
+        STAGE_NAME: !Ref StageName
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+        QUIZ_TABLE_NAME: !Ref QuizHistoryTable
+        MAX_ATTEMPTS: "3"
+        MAX_MCP_REFRESH: "1"
+        DUPLICATE_HINT_WINDOW: "20"
+        SOURCE_CONTEXT_MAX_CHARS: "3500"
+        SOURCE_SNIPPETS_MAX: "8"
+        MCP_ENDPOINT: !Ref McpEndpoint
+        MCP_API_KEY: "" # 基本的に不要
+        HOST_KEY: !Ref HostKey
+        LOG_LEVEL: INFO
+
+Resources:
+  QuizApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref StageName
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref FrontendOrigin
+        AllowHeaders:
+          - content-type
+          - authorization
+          - x-host-key
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+
+      Auth:
+        Authorizers:
+          CloudFrontHeaderAuthorizer:
+            AuthorizerPayloadFormatVersion: 2.0
+            EnableSimpleResponses: true
+            FunctionArn: !GetAtt CloudFrontHeaderAuthorizerFunction.Arn
+            Identity:
+              Headers:
+                - X-From-CloudFront
+        DefaultAuthorizer: CloudFrontHeaderAuthorizer
+
+  CloudFrontHeaderAuthorizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: index.lambda_handler
+      InlineCode: |
+        import os
+
+        def lambda_handler(event, context):
+            headers = event.get('headers') or {}
+            # HTTP API v2 payload normalizes header keys to lower-case
+            expected_name = (os.environ.get('CF_HEADER_NAME') or '').strip()
+            expected_value = (os.environ.get('CF_HEADER_VALUE') or '').strip()
+
+            if not expected_name or not expected_value:
+                # Misconfiguration: fail closed
+                return {'isAuthorized': False}
+
+            got = headers.get(expected_name.lower())
+            return {'isAuthorized': bool(got) and got == expected_value}
+      Environment:
+        Variables:
+          CF_HEADER_NAME: X-From-CloudFront
+          CF_HEADER_VALUE: !Ref CloudFrontToApiHeaderValue
+
+  CloudFrontHeaderAuthorizerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref CloudFrontHeaderAuthorizerFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${QuizApi}/*
+
+  QuizHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: QuestionHash
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: QuestionHash
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: GSI_Recent
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - Category
+              - Level
+              - Question
+              - Tags
+              - Rubric
+              - CreatedAt
+
+  ScoresTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-QuizScores"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: teamId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: teamId
+          KeyType: HASH
+
+  CommonLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: aws-quiz-app-common
+      Description: Shared common modules for aws-quiz-app backend
+      ContentUri: layers/common/
+      CompatibleRuntimes:
+        - python3.14
+      CompatibleArchitectures:
+        - arm64
+    RetentionPolicy: Delete
+
+  GetNextQuizFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      CodeUri: src/get_next_quiz/
+      Timeout: 60
+      MemorySize: 1024
+      Layers:
+        - !Ref CommonLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref QuizHistoryTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
+      Events:
+        GetNextQuiz:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref QuizApi
+            Path: /quiz/next
+            Method: GET
+
+  GetCurrentQuizFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      CodeUri: src/get_current_quiz/
+      Layers:
+        - !Ref CommonLayer
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref QuizHistoryTable
+      Events:
+        GetCurrentQuiz:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref QuizApi
+            Path: /quiz/current
+            Method: GET
+
+  JudgeAnswerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      CodeUri: src/judge_answer/
+      Layers:
+        - !Ref CommonLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref QuizHistoryTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
+      Events:
+        JudgeAnswer:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref QuizApi
+            Path: /quiz/answer
+            Method: POST
+
+  # ✅ ここからが修正点：Type: HttpApi + ApiId: !Ref QuizApi に統合
+  SubmitScoreFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/submit_score/
+      Handler: app.handler
+      Environment:
+        Variables:
+          SCORES_TABLE_NAME: !Ref ScoresTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScoresTable
+      Events:
+        SubmitScore:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref QuizApi
+            Path: /scores/submit
+            Method: POST
+
+  GetScoresFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/get_scores/
+      Handler: app.handler
+      Environment:
+        Variables:
+          SCORES_TABLE_NAME: !Ref ScoresTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref ScoresTable
+      Events:
+        GetScores:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref QuizApi
+            Path: /scores
+            Method: GET
+
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API endpoint
+    Value: !Sub https://${QuizApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}
+
+  ApiGatewayDomainName:
+    Description: Domain name for CloudFront Origin (no scheme, no stage)
+    Value: !Sub ${QuizApi}.execute-api.${AWS::Region}.amazonaws.com
+
+  ApiGatewayOriginPath:
+    Description: Origin path (stage) for CloudFront OriginPath
+    Value: !Sub /${StageName}
