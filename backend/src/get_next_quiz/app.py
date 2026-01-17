@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from decimal import Decimal
 
 import boto3
@@ -65,6 +66,12 @@ USER_PROMPT_TEMPLATE = """次の制約でAWSクイズを1問生成してくだ�
 - avoid_duplicate_hint:
 {avoid_duplicate_hint}
 
+[QUESTION_STYLE]
+次の「型」に沿って出題してください（同じ論点の焼き直しを避ける）:
+- style: {question_style}
+- style_guidance:
+{style_guidance}
+
 [SOURCE_CONTEXT]
 {source_context}
 
@@ -101,53 +108,177 @@ mustHavePointsは4〜6個にしてください。
 """
 
 # -----------------------------
-# MCP query sets
+# MCP query components (fast + deterministic diversification)
 # -----------------------------
 
-QUERYSETS: dict[str, list[str]] = {
-    "security": [
-        "IAM ポリシー 評価ロジック 明示的Deny Allow 優先順位",
-        "IAM 最小権限 ベストプラクティス ロール 利用 推奨",
-        "S3 公開 防止 Block Public Access バケットポリシー 注意点",
-        "クロスアカウント AssumeRole 信頼ポリシー ExternalId 設計",
-        "S3 サーバー側暗号化 SSE-S3 SSE-KMS SSE-C 違い 監査",
-    ],
-    "networking": [
-        "VPC ルートテーブル IGW NAT Gateway サブネット 基礎",
-        "VPC エンドポイント Gateway Interface 違い 使い分け",
-        "セキュリティグループ NACL 違い ステートフル ステートレス",
-        "ハイブリッド接続 Site-to-Site VPN Transit Gateway Direct Connect 選定 観点",
-        "ALB NLB GLB VPC Route Server API Gateway 使い分け",
-    ],
-    "storage": [
-        "S3 ストレージクラス ライフサイクル 移行 仕組み",
-        "S3 バージョニング オブジェクトロック 削除保護 推奨",
-        "S3 リクエスト料金 小さいオブジェクト 大量 注意点",
-        "EBS スナップショット AMI 仕組み 復元 手順 概要",
-        "EFS FSx EBS 使い分け",
-        "DataSync Storage Gateway",
-    ],
-    "serverless": [
-        "Lambda 同時実行 スロットリング リトライ 挙動",
-        "Lambda 非同期 同期 DLQ On-failure 宛先 推奨",
-        "Lambda タイムアウト 設計 VPC 接続 注意点",
-        "Step Functions オーケストレーション パターン 例",
-        "EventBridge SQS SNS 使い分け",
-        "DynamoDB LSI GSI 違い",
-        "Fargate",
-        "Amazon SNS",
-        "Amazon SQS",
-        "AppSync",
-        "Amplify",
-    ],
-    "well-architected": [
-        "Well-Architected フレームワーク 6本柱 要点",
-        "運用上の優秀性 監視 変更管理 インシデント対応 ベストプラクティス",
-        "信頼性 単一障害点 フェイルオーバー 誤解 典型",
-        "コスト最適化 タグ設計 可視化 実践",
-        "責任共有モデル セキュリティ コンプライアンス 違い",
-    ],
+# NOTE:
+# - 既存の「固定クエリ配列」を増やすとメンテ負荷が上がりやすいので、
+#   “部品の組み合わせ”でクエリを生成する方式に置換。
+# - 生成は決定的（category/level/idx からハッシュで選ぶ）なので、DDBカーソルと相性が良い。
+# - MCP search 回数は増やさない（refresh ループはそのまま）。
+QUERY_COMPONENTS: dict[str, dict[str, list[str]]] = {
+    "security": {
+        "services": [
+            "IAM",
+            "STS AssumeRole",
+            "Organizations SCP",
+            "KMS",
+            "S3",
+            "CloudTrail",
+            "Config",
+            "GuardDuty",
+            "WAF",
+            "Secrets Manager",
+        ],
+        "topics": [
+            "最小権限",
+            "評価ロジック",
+            "境界(permissions boundary)",
+            "条件キー",
+            "監査・証跡",
+            "誤設定パターン",
+            "マルチアカウント",
+            "暗号化と鍵管理",
+            "アクセス制御",
+        ],
+        "angles": [
+            "ベストプラクティス",
+            "よくある誤解",
+            "設計の注意点",
+            "運用上の落とし穴",
+            "トレードオフ",
+        ],
+    },
+    "networking": {
+        "services": [
+            "VPC",
+            "Route Table",
+            "NAT Gateway",
+            "Internet Gateway",
+            "VPC Endpoint",
+            "Transit Gateway",
+            "Direct Connect",
+            "Site-to-Site VPN",
+            "ALB",
+            "NLB",
+            "CloudFront",
+            "API Gateway",
+        ],
+        "topics": [
+            "ルーティング",
+            "名前解決(DNS)",
+            "到達性(Reachability)",
+            "セキュリティグループとNACL",
+            "ハイブリッド接続",
+            "L4/L7の使い分け",
+            "可用性設計",
+            "コストと性能",
+        ],
+        "angles": [
+            "基礎",
+            "使い分け",
+            "設計の観点",
+            "障害・切り分け",
+            "アンチパターン",
+        ],
+    },
+    "storage": {
+        "services": [
+            "S3",
+            "EBS",
+            "EFS",
+            "FSx",
+            "DataSync",
+            "Storage Gateway",
+            "Glacier",
+            "S3 Object Lock",
+        ],
+        "topics": [
+            "耐久性と可用性",
+            "ライフサイクル",
+            "暗号化",
+            "バックアップ/復元",
+            "性能(スループット/IOPS)",
+            "コスト最適化",
+            "整合性とバージョニング",
+            "アクセス制御",
+        ],
+        "angles": [
+            "仕組み",
+            "注意点",
+            "使い分け",
+            "運用",
+            "監査",
+        ],
+    },
+    "serverless": {
+        "services": [
+            "Lambda",
+            "API Gateway",
+            "EventBridge",
+            "SQS",
+            "SNS",
+            "Step Functions",
+            "DynamoDB",
+            "AppSync",
+            "Amplify",
+            "Fargate",
+        ],
+        "topics": [
+            "非同期/同期",
+            "再試行と冪等性",
+            "同時実行とスロットリング",
+            "DLQ/宛先",
+            "オーケストレーション",
+            "イベント駆動設計",
+            "権限/IAM",
+            "監視と運用",
+            "データモデリング(GSI/LSI)",
+        ],
+        "angles": [
+            "ベストプラクティス",
+            "トラブルシュート",
+            "設計パターン",
+            "制限・クォータ",
+            "アンチパターン",
+        ],
+    },
+    "well-architected": {
+        "services": [
+            "Well-Architected Framework",
+            "運用上の優秀性",
+            "セキュリティ",
+            "信頼性",
+            "パフォーマンス効率",
+            "コスト最適化",
+            "サステナビリティ",
+        ],
+        "topics": [
+            "柱の要点",
+            "設計原則",
+            "代表的なベストプラクティス",
+            "よくある落とし穴",
+            "トレードオフ",
+            "メトリクス/可観測性",
+        ],
+        "angles": [
+            "要点整理",
+            "具体例",
+            "誤解の修正",
+            "改善アクション",
+            "レビュー観点",
+        ],
+    },
 }
+
+QUESTION_STYLES: list[tuple[str, str]] = [
+    ("使い分け", "A/B/Cの違いを『要件→選定理由→注意点』で問う。単なる定義暗記にしない。"),
+    ("トレードオフ", "正解が一つに見えても条件次第で変わる論点を出す。何を捨て何を取るかを答えさせる。"),
+    ("誤り探し", "提示した設定/設計のどこが危険か、どう直すべきかを問う。"),
+    ("運用・障害対応", "事象→原因候補→切り分け手順→恒久対策を答えさせる。"),
+    ("監査・コンプラ観点", "監査で指摘されやすい点、証跡/責任分界/統制の観点を盛り込む。"),
+    ("コスト最適化", "コストの増えやすいポイントと、要件を満たしつつ下げる方法を問う。"),
+]
 
 
 def _level_suffix(level: int) -> str:
@@ -158,6 +289,65 @@ def _level_suffix(level: int) -> str:
         400: "設計トレードオフ 複数サービスやアーキテクチャによる実装 アンチパターン 深掘り",
     }[level]
 
+
+def _stable_pick(seed: str, n: int) -> int:
+    """
+    0..n-1 を決定的に選ぶ（ランダムではなく、同じseedなら同じ結果）。
+    DDBカーソルでのローテーションと相性が良い。
+    """
+    if n <= 0:
+        return 0
+    h = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    v = int(h[:12], 16)  # enough
+    return v % n
+
+
+def _query_space_size(category: str) -> int:
+    c = QUERY_COMPONENTS[category]
+    # “サービス×トピック×角度” の組み合わせ空間
+    return max(1, len(c["services"]) * len(c["topics"]) * len(c["angles"]))
+
+
+def _build_mcp_query_and_style(category: str, level: int, idx: int) -> tuple[str, str, str]:
+    """
+    idx を組み合わせ空間に写像して MCP 検索クエリを作る。
+    MCP 検索クエリ自体は過度に振らず、ヒット品質を維持しつつバリエーションを増やす。
+    併せて Bedrock へ渡す QUESTION_STYLE をローテする。
+    """
+    c = QUERY_COMPONENTS[category]
+    services = c["services"]
+    topics = c["topics"]
+    angles = c["angles"]
+
+    space = _query_space_size(category)
+    i = idx % space
+
+    # 3次元インデックスへ展開
+    s_idx = i % len(services)
+    t_idx = (i // len(services)) % len(topics)
+    a_idx = (i // (len(services) * len(topics))) % len(angles)
+
+    service = services[s_idx]
+    topic = topics[t_idx]
+    angle = angles[a_idx]
+
+    # レベル別の補助語（既存の _level_suffix を踏襲）
+    lvl = _level_suffix(level)
+
+    # ちょい足しの“ゆらぎ”を決定的に付与（検索回数は増やさず、ヒット分布を少し変える）
+    # 付けすぎると精度低下するので少数に限定
+    micro_mods = ["注意点", "制限", "設計", "運用", "ベストプラクティス", "よくある誤解"]
+    m_idx = _stable_pick(f"{category}:{level}:{idx}:micro", len(micro_mods))
+    micro = micro_mods[m_idx]
+
+    # MCP query（短く・意図が通る形）
+    query = f"{service} {topic} {angle} {micro} {lvl}".strip()
+
+    # Question style (Bedrock側の出題“型”)
+    st_i = _stable_pick(f"{category}:{level}:{idx}:style", len(QUESTION_STYLES))
+    style_name, style_guidance = QUESTION_STYLES[st_i]
+
+    return query, style_name, style_guidance
 
 
 # -----------------------------
@@ -215,6 +405,7 @@ def _advance_cursor_next_idx(
         # Best-effort: if a concurrent writer already advanced it, that's OK.
         # The next request will read the latest cursor value.
         return
+
 
 # -----------------------------
 # Helpers
@@ -352,16 +543,20 @@ def lambda_handler(event, context):
         avoid_hint = _make_avoid_hint(hints)
 
         # ---- MCP refresh loop (query rotation) ----
-        base_queries = QUERYSETS[category]
+        # cursor is kept, but we rotate over a large deterministic combination space
         start_idx = _get_cursor_next_idx(QUIZ_TABLE_NAME, category, level)
-        max_refresh = min(MAX_MCP_REFRESH, max(0, len(base_queries) - 1))
+
+        space = _query_space_size(category)
+        # Keep same idea as before: refresh tries "nearby" candidates (bounded by MAX_MCP_REFRESH)
+        # Use space to avoid refresh > space-1 when space is small (still usually large).
+        max_refresh = min(MAX_MCP_REFRESH, max(0, space - 1))
 
         refresh = 0
         while refresh <= max_refresh:
-            q_idx = (start_idx + refresh) % len(base_queries)
-            query = base_queries[q_idx] + _level_suffix(level)
+            q_idx = start_idx + refresh
+            query, style_name, style_guidance = _build_mcp_query_and_style(category, level, q_idx)
 
-            print("[INFO] MCP search", {"requestId": aws_request_id, "refresh": refresh, "query": query})
+            print("[INFO] MCP search", {"requestId": aws_request_id, "refresh": refresh, "query": query, "style": style_name})
 
             mcp_snippets = mcp.search(query=query, max_snippets=SOURCE_SNIPPETS_MAX)
             snippets = [s.text for s in mcp_snippets]
@@ -384,6 +579,8 @@ def lambda_handler(event, context):
                     category=category,
                     level=level,
                     avoid_duplicate_hint=avoid_hint,
+                    question_style=style_name,
+                    style_guidance=style_guidance,
                     source_context=source_context,
                 )
 
@@ -455,7 +652,14 @@ def lambda_handler(event, context):
                 item = _to_ddb_safe(item)
 
                 if repo.put_unique(item):
-                    _advance_cursor_next_idx(QUIZ_TABLE_NAME, category, level, expected_old=start_idx, new_value=(start_idx + refresh + 1))
+                    # advance cursor by exactly one "candidate step" when we succeed
+                    _advance_cursor_next_idx(
+                        QUIZ_TABLE_NAME,
+                        category,
+                        level,
+                        expected_old=start_idx,
+                        new_value=(start_idx + refresh + 1),
+                    )
                     return _resp(
                         200,
                         {
