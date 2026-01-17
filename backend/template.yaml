@@ -42,11 +42,11 @@ Globals:
         STAGE_NAME: !Ref StageName
         BEDROCK_MODEL_ID: !Ref BedrockModelId
         QUIZ_TABLE_NAME: !Ref QuizHistoryTable
-        MAX_ATTEMPTS: "3"
+        MAX_ATTEMPTS: "1"
         MAX_MCP_REFRESH: "1"
         DUPLICATE_HINT_WINDOW: "20"
-        SOURCE_CONTEXT_MAX_CHARS: "3500"
-        SOURCE_SNIPPETS_MAX: "8"
+        SOURCE_CONTEXT_MAX_CHARS: "3000"
+        SOURCE_SNIPPETS_MAX: "6"
         MCP_ENDPOINT: !Ref McpEndpoint
         MCP_API_KEY: "" # 基本的に不要
         HOST_KEY: !Ref HostKey
