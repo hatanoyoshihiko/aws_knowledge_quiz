@@ -3,236 +3,45 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AWS Quiz | Team</title>
+  <title>AWS Quiz App</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <meta name="color-scheme" content="light dark">
-
-  <link rel="stylesheet" href="/css/app.css">
 </head>
 
-<body class="min-h-screen bg-slate-950 text-slate-100">
-  <!-- Top bar -->
-  <div class="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur">
-    <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-      <div class="flex items-center gap-3">
-        <button id="sidebarToggle" class="md:hidden rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs font-semibold hover:bg-slate-800">
-          メニュー
-        </button>
-        <div>
-          <div class="flex items-center gap-2">
-            <div class="h-2.5 w-2.5 rounded-full bg-emerald-400" aria-hidden="true"></div>
-            <h1 class="text-sm font-semibold tracking-tight">AWSクイズアプリ（チーム）</h1>
+<body class="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+  <div class="w-full max-w-xl px-6">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-lg">
+      <h1 class="text-2xl font-bold mb-6 text-center">
+        AWS クイズアプリ
+      </h1>
+
+      <p class="text-slate-300 text-center mb-8">
+        利用する役割を選択してください
+      </p>
+
+      <div class="grid gap-4">
+        <!-- Host -->
+        <a href="./host.html" class="block rounded-xl border border-slate-700 bg-slate-800/60 p-6 hover:bg-slate-700 transition">
+          <div class="text-lg font-semibold">🎤 出題者（Host）</div>
+          <div class="text-sm text-slate-400 mt-1">
+            クイズの出題・進行・スコアボード表示
           </div>
-          <p class="text-xs text-slate-400">最新クイズに自動同期 / Bedrock採点 / 音声入力</p>
-        </div>
+        </a>
+
+        <!-- Team -->
+        <a href="./team.html" class="block rounded-xl border border-slate-700 bg-slate-800/60 p-6 hover:bg-slate-700 transition">
+          <div class="text-lg font-semibold">🧑‍💻 回答者（Team）</div>
+          <div class="text-sm text-slate-400 mt-1">
+            チーム名を入力してクイズに回答
+          </div>
+        </a>
       </div>
 
-      <div class="flex items-center gap-2">
-        <div id="configBadge" class="hidden sm:inline-flex items-center rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-slate-300 ring-1 ring-slate-800">
-          設定読み込み中…
-        </div>
-        <button id="refreshBtn" class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-300">
-          <span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span>
-          更新
-        </button>
+      <div class="mt-8 text-center text-xs text-slate-500">
+        ※ 回答は必ず「回答者（Team）」画面から行ってください
       </div>
     </div>
   </div>
-
-  <!-- Toast -->
-  <div class="pointer-events-none fixed bottom-4 right-4 z-50">
-    <div id="toast" class="hidden max-w-sm rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 text-sm text-slate-200 shadow-xl backdrop-blur fade-in"></div>
-  </div>
-
-  <!-- Layout (2 columns: left=controls+history, right=main) -->
-  <div class="mx-auto grid max-w-7xl grid-cols-12 gap-4 px-4 py-6">
-    <!-- Sidebar (Controls + History) -->
-    <aside id="sidebar" class="col-span-12 hidden md:block md:col-span-4">
-      <div class="space-y-4">
-        <!-- Controls card -->
-        <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm">
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-slate-100">コントロール</h2>
-            <!-- ✅ チーム側から「出題者」ボタンを削除 -->
-          </div>
-
-          <div class="mt-4 space-y-3">
-            <div>
-              <label class="block text-xs font-medium text-slate-300">チーム名（ローカル保存）</label>
-              <input id="teamName" placeholder="例：Team A" class="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-300" />
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-              <button id="focusAnswerBtn" class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500">
-                回答へ
-              </button>
-              <!-- ✅ id重複を解消（refreshBtnは上部にあるため、sidebar側は別IDに） -->
-              <button id="sidebarRefreshBtn" class="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300">
-                更新
-              </button>
-            </div>
-
-            <div class="rounded-xl border border-slate-800 bg-slate-950 p-3">
-              <div class="text-xs font-semibold text-slate-200">接続状態</div>
-              <div class="mt-2 flex items-center gap-2">
-                <span id="connDot" class="inline-block h-2.5 w-2.5 rounded-full bg-slate-500"></span>
-                <span id="connText" class="text-xs text-slate-300">未接続</span>
-              </div>
-              <div class="mt-2 text-[11px] text-slate-400 break-all" id="apiText">apiEndpoint: -</div>
-              <div class="mt-1 text-[11px] text-slate-500 break-all" id="timeoutText">timeoutMs: -</div>
-            </div>
-
-            <div class="rounded-xl border border-slate-800 bg-slate-950 p-3">
-              <div class="text-xs font-semibold text-slate-200">ショートカット</div>
-              <ul class="mt-2 space-y-1 text-xs text-slate-300">
-                <li><span class="font-semibold text-slate-100">Ctrl/⌘ + Enter</span>：採点</li>
-                <li><span class="font-semibold text-slate-100">Ctrl/⌘ + K</span>：回答へフォーカス</li>
-                <li><span class="font-semibold text-slate-100">Esc</span>：音声停止</li>
-              </ul>
-            </div>
-
-            <div id="globalMsg" class="hidden rounded-xl border border-amber-900/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"></div>
-          </div>
-        </div>
-
-        <!-- History card -->
-        <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm">
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-slate-100">履歴</h2>
-            <button id="clearHistoryBtn" class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-900">クリア</button>
-          </div>
-
-          <p class="mt-2 text-xs text-slate-400">直近10件まで保存（ローカル）。クリックで復習できます。</p>
-          <div id="historyList" class="mt-4 space-y-2"></div>
-
-          <div class="mt-6 rounded-2xl border border-slate-800 bg-slate-950 p-3">
-            <div class="text-xs font-semibold text-slate-200">Tips</div>
-            <ul class="mt-2 space-y-1 text-xs text-slate-400">
-              <li>・最新のクイズに自動同期します（数秒遅延あり）。</li>
-              <li>・採点結果は各チームごとに表示されます。</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </aside>
-
-    <!-- Main -->
-    <main class="col-span-12 md:col-span-8">
-      <div class="space-y-4">
-        <!-- Question card -->
-        <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-sm">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="flex flex-wrap items-center gap-2">
-                <span id="qCategoryBadge" class="hidden rounded-full bg-slate-950 px-2.5 py-1 text-xs font-semibold text-slate-200 ring-1 ring-slate-800"></span>
-                <span id="qLevelBadge" class="hidden rounded-full bg-slate-950 px-2.5 py-1 text-xs font-semibold text-slate-200 ring-1 ring-slate-800"></span>
-              </div>
-              <h2 id="qTitle" class="mt-3 text-xl font-bold tracking-tight">出題者がクイズを出すまでお待ちください</h2>
-              <p id="qBody" class="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
-                画面右上またはサイドバーの「更新」を押すと、最新クイズを取得します。
-              </p>
-            </div>
-
-            <div class="text-right">
-              <div class="text-[11px] text-slate-400" id="qMeta">—</div>
-              <div class="mt-2 flex items-center justify-end gap-2">
-                <span class="rounded-full bg-slate-950 px-2 py-1 text-[11px] font-semibold text-slate-300 ring-1 ring-slate-800">questionId</span>
-                <span id="qId" class="max-w-[140px] truncate text-[11px] text-slate-400">—</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="mt-4 flex flex-wrap items-center gap-2">
-            <button id="copyQidBtn" class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:opacity-60">
-              IDコピー
-            </button>
-            <button id="resetBtn" class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500">
-              画面リセット
-            </button>
-            <div id="loadingPill" class="ml-auto hidden items-center gap-2 rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold text-slate-300 ring-1 ring-slate-800">
-              <span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-600 border-t-slate-200"></span>
-              通信中…
-            </div>
-          </div>
-        </section>
-
-        <!-- Answer card -->
-        <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-sm">
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h3 class="text-sm font-semibold text-slate-100">回答</h3>
-            <div class="flex items-center gap-2">
-              <button id="micBtn" class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:opacity-60">🎙 音声入力</button>
-              <button id="clearBtn" class="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 disabled:opacity-60">クリア</button>
-              <button id="submitBtn" class="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:opacity-60">採点する</button>
-            </div>
-          </div>
-
-          <p id="micStatus" class="mt-2 hidden text-xs text-slate-400"></p>
-
-          <textarea id="answer" rows="6" placeholder="回答を入力（Ctrl/⌘+Enterで採点、Ctrl/⌘+Kでここへフォーカス）" class="mt-3 w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-300"></textarea>
-
-          <div class="mt-3 text-xs text-slate-400">
-            音声入力はブラウザ機能（Web Speech API）を使用します。未対応の場合はテキスト入力で利用してください。
-          </div>
-        </section>
-
-        <!-- Result card -->
-        <section class="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 shadow-sm">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <h3 class="text-sm font-semibold text-slate-100">結果</h3>
-              <div class="mt-2 flex flex-wrap items-center gap-2">
-                <span id="resultBadge" class="hidden rounded-full px-2.5 py-1 text-xs font-semibold"></span>
-                <span id="scoreText" class="text-xs text-slate-400"></span>
-              </div>
-            </div>
-          </div>
-
-          <div class="mt-3 rounded-2xl border border-slate-800 bg-slate-950 p-4">
-            <p id="feedback" class="whitespace-pre-wrap text-sm text-slate-100">ここに採点結果が表示されます。</p>
-
-            <div id="pointsWrap" class="mt-4 hidden">
-              <div class="flex items-center justify-between">
-                <div class="text-xs font-semibold text-slate-300">要点</div>
-                <button id="pointsToggleBtn" class="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500">
-                  <span id="pointsToggleIcon" aria-hidden="true">▼</span>
-                  <span id="pointsToggleText">表示</span>
-                </button>
-              </div>
-
-              <div id="pointsBody" class="mt-3 hidden">
-                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div class="rounded-2xl border border-slate-800 bg-slate-950 p-3">
-                    <div class="text-xs font-semibold text-slate-200">満たした要点</div>
-                    <ul id="metPoints" class="mt-2 list-disc pl-5 text-sm text-slate-300"></ul>
-                  </div>
-                  <div class="rounded-2xl border border-slate-800 bg-slate-950 p-3">
-                    <div class="text-xs font-semibold text-slate-200">不足している要点</div>
-                    <ul id="missingPoints" class="mt-2 list-disc pl-5 text-sm text-slate-300"></ul>
-                  </div>
-                </div>
-              </div>
-
-              <div id="hintWrap" class="mt-3 hidden rounded-2xl border border-amber-900/40 bg-amber-500/10 p-3 text-sm text-amber-100"></div>
-            </div>
-          </div>
-        </section>
-      </div>
-    </main>
-  </div>
-
-  <!-- ✅ 既存JSを触らずに、サイドバーの更新ボタンを上部更新ボタンへ委譲 -->
-  <script>
-    (function () {
-      const topRefresh = document.getElementById("refreshBtn");
-      const sideRefresh = document.getElementById("sidebarRefreshBtn");
-      if (topRefresh && sideRefresh) {
-        sideRefresh.addEventListener("click", () => topRefresh.click());
-      }
-    })();
-  </script>
-
-  <script type="module" src="/js/mainTeam.js"></script>
 </body>
 </html>
