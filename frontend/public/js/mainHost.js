@@ -16,6 +16,12 @@ import { setupShortcuts } from "./ui/shortcuts.js";
 
 const HOST_KEY_STORAGE = "awsQuizHostKey";
 
+// ========================
+// Scoreboard 表示設定
+// ========================
+const SCOREBOARD_MAX_RANK = 10;      // 通常表示は上位10位まで
+const SCOREBOARD_REST_MAX_HEIGHT_PX = 260; // 11位以降のスクロール領域高さ
+
 // ------------------------
 // HostKey helpers (non-breaking)
 // quizApi.js に setHostKey/getHostKey があればそれを使い、無ければここで補完
@@ -94,6 +100,43 @@ function rankBadge(i) {
   return `#${i + 1}`;
 }
 
+function makeScoreRow(teamObj, rankIndex) {
+  const t = teamObj || {};
+
+  // ✅ 表示は常に teamName（or name）を優先し、teamId は表示しない
+  const displayNameRaw = (t.teamName ?? t.name ?? "").toString().trim();
+  const team = escapeHtml(displayNameRaw || `Team ${rankIndex + 1}`);
+
+  const score = Number(t.score ?? t.pts ?? 0) || 0;
+
+  const row = document.createElement("div");
+  row.className =
+    "flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3";
+
+  // 内部キーとして teamId は保持（必要ならデバッグ/将来用途に使える）
+  row.dataset.teamId = (t.teamId ?? "").toString();
+
+  row.innerHTML = `
+    <div class="flex items-center gap-3">
+      <div class="text-lg">${rankBadge(rankIndex)}</div>
+      <div class="min-w-0">
+        <div class="truncate font-semibold text-slate-100">${team}</div>
+      </div>
+    </div>
+    <div class="text-right">
+      <div class="text-xl font-bold text-slate-100">${score}</div>
+      <div class="text-xs text-slate-400">pts</div>
+    </div>
+  `;
+
+  return row;
+}
+
+/**
+ * Scoreboard 描画:
+ * - 上位10位までは通常表示
+ * - 11位以降は <details> で折りたたみ。中身はスクロール領域
+ */
 function renderScoreboard(items) {
   const root = el("scoreboardList");
   if (!root) return;
@@ -101,32 +144,46 @@ function renderScoreboard(items) {
   root.innerHTML = "";
 
   const sorted = [...(items || [])].sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
-  const top = sorted.slice(0, 5);
+  const top = sorted.slice(0, SCOREBOARD_MAX_RANK);
+  const rest = sorted.slice(SCOREBOARD_MAX_RANK);
 
+  // ---- top (1〜10位)
   for (let i = 0; i < top.length; i++) {
-    const t = top[i] || {};
-    const team = escapeHtml(t.teamName || t.name || t.teamId || `Team ${i + 1}`);
-    const score = Number(t.score ?? t.pts ?? 0) || 0;
+    root.appendChild(makeScoreRow(top[i], i));
+  }
 
-    const row = document.createElement("div");
-    row.className =
-      "flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3";
+  // ---- rest (11位以降) は折りたたみ + スクロール
+  if (rest.length > 0) {
+    const details = document.createElement("details");
+    details.className =
+      "mt-2 rounded-2xl border border-slate-800 bg-slate-900/30 p-3";
 
-    row.innerHTML = `
-      <div class="flex items-center gap-3">
-        <div class="text-lg">${rankBadge(i)}</div>
-        <div class="min-w-0">
-          <div class="truncate font-semibold text-slate-100">${team}</div>
-          <div class="text-xs text-slate-400">${escapeHtml(String(t.teamId || ""))}</div>
-        </div>
-      </div>
-      <div class="text-right">
-        <div class="text-xl font-bold text-slate-100">${score}</div>
-        <div class="text-xs text-slate-400">pts</div>
-      </div>
-    `;
+    // デフォルトは閉じておく（必要なら details.open = true; で開ける）
+    // details.open = false;
 
-    root.appendChild(row);
+    const summary = document.createElement("summary");
+    summary.className =
+      "cursor-pointer select-none list-none rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-900";
+    summary.textContent = `11位以降を表示（${rest.length}チーム）`;
+
+    // summary のデフォルトマーカーを消す（ブラウザ差異があるので補助）
+    // Tailwindだけでは消えないことがあるため、微調整
+    summary.style.outline = "none";
+
+    const box = document.createElement("div");
+    box.className = "mt-3 space-y-2";
+    box.style.maxHeight = `${SCOREBOARD_REST_MAX_HEIGHT_PX}px`;
+    box.style.overflow = "auto";
+    box.style.paddingRight = "4px"; // スクロールバーで文字が隠れにくい
+
+    for (let i = 0; i < rest.length; i++) {
+      const rankIndex = SCOREBOARD_MAX_RANK + i; // 10位の次=11位
+      box.appendChild(makeScoreRow(rest[i], rankIndex));
+    }
+
+    details.appendChild(summary);
+    details.appendChild(box);
+    root.appendChild(details);
   }
 }
 
@@ -165,7 +222,15 @@ function setupScoreboard() {
       if (meta) meta.textContent = "読み込み中…";
       const items = await fetchScores();
       renderScoreboard(items);
-      if (meta) meta.textContent = `最終更新: ${new Date().toLocaleTimeString()} / チーム数: ${items.length}`;
+
+      const now = new Date().toLocaleTimeString();
+      const total = Array.isArray(items) ? items.length : 0;
+      const shown = Math.min(total, SCOREBOARD_MAX_RANK);
+
+      if (meta) {
+        meta.textContent =
+          `最終更新: ${now} / チーム数: ${total} / 表示: ${shown}${total > SCOREBOARD_MAX_RANK ? ` + 残り（折りたたみ）` : ""}`;
+      }
     } catch (e) {
       if (meta) meta.textContent = `更新失敗: ${e.message}`;
     }
@@ -173,7 +238,7 @@ function setupScoreboard() {
 
   const start = () => {
     if (timer) clearInterval(timer);
-    timer = setInterval(refresh, 30000); //30秒
+    timer = setInterval(refresh, 15000); // 15秒
   };
 
   const stop = () => {
@@ -224,7 +289,6 @@ function getNextQuizFn() {
   return null;
 }
 
-
 window.addEventListener("DOMContentLoaded", async () => {
   setLoading(true);
   try {
@@ -255,9 +319,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     console.warn("[mainHost] cannot run nextQuiz. exported functions:", exportedFns);
   };
 
-el("nextBtn")?.addEventListener("click", () => (nextFn ? nextFn() : warnNoNext()));
-el("nextBtnTop")?.addEventListener("click", () => (nextFn ? nextFn() : warnNoNext()));
-
+  el("nextBtn")?.addEventListener("click", () => (nextFn ? nextFn() : warnNoNext()));
+  el("nextBtnTop")?.addEventListener("click", () => (nextFn ? nextFn() : warnNoNext()));
 
   el("resetBtn")?.addEventListener("click", () => resetAll({ clearGlobalMsg, toast }));
   el("copyQidBtn")?.addEventListener("click", copyQid);
