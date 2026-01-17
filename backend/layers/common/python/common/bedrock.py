@@ -12,7 +12,7 @@ class BedrockClient:
             modelId=model_id,
             system=[{"text": system}],
             messages=[{"role": "user", "content": [{"text": user}]}],
-            inferenceConfig={"temperature": 0.2, "maxTokens": 2200},
+            inferenceConfig={"temperature": 0.4, "maxTokens": 2200},
         )
         # 応答テキストを連結
         parts = []
