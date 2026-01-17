@@ -17,22 +17,52 @@ import { toggleSidebar } from "./ui/sidebar.js";
 import { setupShortcuts } from "./ui/shortcuts.js";
 import { loadHistory, clearHistory } from "./state/history.js";
 
-// ✅ タブ単位でチーム名を保持（localStorageだとタブ間で上書きされる）
+// タブ単位でチーム名を保持（localStorageだとタブ間で上書きされる）
 const TEAM_NAME_STORAGE = "awsQuizTeamName_session";
-const POLL_MS = 30000; //30秒
+const POLL_MS = 15000; //15秒
 
 function _normalizeTeamName(name) {
   const n = String(name || "").trim();
   return n || "Team";
 }
 
-// ✅ チーム名から安定した teamId を作る（同一ブラウザでも Team A / Team B を分離）
-function _teamIdFromName(teamName) {
-  const n = _normalizeTeamName(teamName)
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9\-_]/g, "");
-  return `team:${n || "team"}`;
+// ------------------------
+// teamId hashing
+// ------------------------
+function _toHex(uint8arr) {
+  return Array.from(uint8arr)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * チーム名から安定した teamId を作る（SHA-256）
+ * - 同じ teamName -> 同じ teamId
+ * - 大小文字差/前後空白は吸収（正規化）
+ * - 返り値形式は互換のため `team:<hash>` にする
+ */
+async function _teamIdFromName(teamName) {
+  const normalized = _normalizeTeamName(teamName).toLowerCase();
+
+  // 空のときのフォールバック（既存互換）
+  if (!normalized) return "team:anonymous";
+
+  // Web Crypto API が使えない環境向けのフォールバック
+  // （基本ブラウザでは使えるが、念のため）
+  if (!globalThis.crypto?.subtle?.digest) {
+    // 旧来のスラッグ方式にフォールバック（最悪でも動く）
+    const n = normalized
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9\-_]/g, "");
+    return `team:${n || "team"}`;
+  }
+
+  const enc = new TextEncoder();
+  const data = enc.encode(normalized);
+  const hashBuf = await crypto.subtle.digest("SHA-256", data);
+  const hashHex = _toHex(new Uint8Array(hashBuf));
+
+  return `team:${hashHex}`;
 }
 
 function _restoreTeamName() {
@@ -195,7 +225,9 @@ async function submitAnswerAndScore() {
   }
 
   const teamName = _normalizeTeamName(el("teamName")?.value);
-  const teamId = _teamIdFromName(teamName);
+
+  // ★ ここが変更点：hash化のため await
+  const teamId = await _teamIdFromName(teamName);
 
   const qid = _getCurrentQidFromDom();
   const scoreKey = `${teamId}:${qid || "unknown"}`;
@@ -269,7 +301,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   el("micBtn")?.addEventListener("click", toggleMic);
 
   const refreshFn = _getCurrentQuizFn();
-  const refresh = () => (refreshFn ? refreshFn({ silent: false }) : toast("quiz取得関数が見つかりません"));
+  const refresh = () =>
+    refreshFn ? refreshFn({ silent: false }) : toast("quiz取得関数が見つかりません");
 
   el("refreshBtn")?.addEventListener("click", refresh);
   el("refreshBtnSide")?.addEventListener("click", refresh);
