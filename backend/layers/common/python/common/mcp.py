@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 # Tuning knobs (speed vs quality)
 # -------------------------
 # search_documentation の上位何件だけ採用するか
-SEARCH_TOP_K = 3
+SEARCH_TOP_K = 2
 
 # recommend を使うか（遅くなりがちなのでデフォルトOFF推奨）
 ENABLE_RECOMMEND = False
@@ -20,7 +20,7 @@ ENABLE_RECOMMEND = False
 RECOMMEND_TOP_K = 1
 
 # read_documentation の上位何件だけ読むか（ここが一番効く）
-READ_TOP_K = 3
+READ_TOP_K = 2
 
 # 1ページから作るスニペットの最大文字数（Bedrock入力増＝遅延増なので抑えめ）
 SNIPPET_MAX_CHARS = 900
