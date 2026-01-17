@@ -11,8 +11,8 @@ STAGE_NAME = env("STAGE_NAME", "dev")
 BEDROCK_MODEL_ID = env("BEDROCK_MODEL_ID")
 QUIZ_TABLE_NAME = env("QUIZ_TABLE_NAME")
 
-MAX_ATTEMPTS = int(env("MAX_ATTEMPTS", "3"))
-MAX_MCP_REFRESH = int(env("MAX_MCP_REFRESH", "2"))
+MAX_ATTEMPTS = int(env("MAX_ATTEMPTS", "1")) #同一の MCP 検索結果（SOURCE_CONTEXT）に対して、Bedrock によるクイズ生成を何回まで再試行するか、低いと生成時間が短くなります
+MAX_MCP_REFRESH = int(env("MAX_MCP_REFRESH", "1")) #クイズ生成に失敗した場合に、別の MCP 検索クエリで再検索する最大回数
 DUPLICATE_HINT_WINDOW = int(env("DUPLICATE_HINT_WINDOW", "20"))
 
 SOURCE_CONTEXT_MAX_CHARS = int(env("SOURCE_CONTEXT_MAX_CHARS", "3000"))
