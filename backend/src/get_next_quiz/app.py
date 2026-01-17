@@ -42,6 +42,9 @@ SYSTEM_PROMPT = """あなたはAWSソリューションアーキテクト兼、�
   - 100: 基礎概念、200: 設計/推奨、300: 実装/運用、400: 専門家/トレードオフ
 - ScoringPolicyは correct=100%, close=80% を満たすように定義する。
 - クイズはトンチを利かしたり、ユーモアに富んだ文章とする。
+- 誤解を招く表現はしないこと。
+- 設問に対しての回答を明確に求め、YESやNOの表現だけを回答として求めないこと。
+- 現在時刻で廃止が決定されている仕組（SSE-C等）は出題しないこと。
 """
 
 USER_PROMPT_TEMPLATE = """次の制約でAWSクイズを1問生成してください。
@@ -49,8 +52,8 @@ USER_PROMPT_TEMPLATE = """次の制約でAWSクイズを1問生成してくだ�
 [CONSTRAINTS]
 - 文字数制約（必ず守る）:
   - title: 60文字以内
-  - body: 300文字以内
-  - sourceSummary: 250文字以内
+  - body: 400文字以内
+  - sourceSummary: 300文字以内
   - rubric.expectedAnswer: 400文字以内
   - mustHavePoints.label: 60文字以内、notes: 120文字以内
   - keywords_any: 各要素 20文字以内、各ポイント最大 8 個
@@ -113,15 +116,16 @@ QUERYSETS: dict[str, list[str]] = {
         "VPC ルートテーブル IGW NAT Gateway サブネット 基礎",
         "VPC エンドポイント Gateway Interface 違い 使い分け",
         "セキュリティグループ NACL 違い ステートフル ステートレス",
-        "ハイブリッド接続 Site-to-Site VPN Direct Connect 選定 観点",
-        "ALB NLB API Gateway 使い分け",
+        "ハイブリッド接続 Site-to-Site VPN Transit Gateway Direct Connect 選定 観点",
+        "ALB NLB GLB VPC Route Server API Gateway 使い分け",
     ],
     "storage": [
         "S3 ストレージクラス ライフサイクル 移行 仕組み",
         "S3 バージョニング オブジェクトロック 削除保護 推奨",
         "S3 リクエスト料金 小さいオブジェクト 大量 注意点",
-        "EBS スナップショット 仕組み 復元 手順 概要",
+        "EBS スナップショット AMI 仕組み 復元 手順 概要",
         "EFS FSx EBS 使い分け",
+        "DataSync Storage Gateway",
     ],
     "serverless": [
         "Lambda 同時実行 スロットリング リトライ 挙動",
@@ -129,6 +133,12 @@ QUERYSETS: dict[str, list[str]] = {
         "Lambda タイムアウト 設計 VPC 接続 注意点",
         "Step Functions オーケストレーション パターン 例",
         "EventBridge SQS SNS 使い分け",
+        "DynamoDB LSI GSI 違い",
+        "Fargate",
+        "Amazon SNS",
+        "Amazon SQS",
+        "AppSync",
+        "Amplify",
     ],
     "well-architected": [
         "Well-Architected フレームワーク 6本柱 要点",
@@ -142,10 +152,10 @@ QUERYSETS: dict[str, list[str]] = {
 
 def _level_suffix(level: int) -> str:
     return {
-        100: " 概要 基礎",
-        200: " ベストプラクティス 設計 推奨",
-        300: " 設定 運用 トラブルシュート 注意点",
-        400: " 設計トレードオフ アンチパターン 深掘り",
+        100: "入門 基礎 概要",
+        200: "ベストプラクティス 設計 推奨 機能の詳細",
+        300: "設定 運用 実装 トラブルシュート 注意点",
+        400: "設計トレードオフ 複数サービスやアーキテクチャによる実装 アンチパターン 深掘り",
     }[level]
 
 
