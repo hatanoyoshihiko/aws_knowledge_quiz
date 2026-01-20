@@ -43,9 +43,9 @@ Globals:
         BEDROCK_MODEL_ID: !Ref BedrockModelId
         QUIZ_TABLE_NAME: !Ref QuizHistoryTable
         MAX_ATTEMPTS: "1"
-        MAX_MCP_REFRESH: "1"
+        MAX_MCP_REFRESH: "0"
         DUPLICATE_HINT_WINDOW: "20"
-        SOURCE_CONTEXT_MAX_CHARS: "3000"
+        SOURCE_CONTEXT_MAX_CHARS: "2200"
         SOURCE_SNIPPETS_MAX: "6"
         MCP_ENDPOINT: !Ref McpEndpoint
         MCP_API_KEY: "" # 基本的に不要

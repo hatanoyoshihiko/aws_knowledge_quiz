@@ -23,7 +23,7 @@ RECOMMEND_TOP_K = 1
 READ_TOP_K = 2
 
 # 1ページから作るスニペットの最大文字数（Bedrock入力増＝遅延増なので抑えめ）
-SNIPPET_MAX_CHARS = 900
+SNIPPET_MAX_CHARS = 650
 
 
 @dataclass
