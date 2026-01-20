@@ -53,9 +53,9 @@ USER_PROMPT_TEMPLATE = """次の制約でAWSクイズを1問生成してくだ�
 [CONSTRAINTS]
 - 文字数制約（必ず守る）:
   - title: 60文字以内
-  - body: 400文字以内
-  - sourceSummary: 300文字以内
-  - rubric.expectedAnswer: 400文字以内
+  - body: 340文字以内
+  - sourceSummary: 220文字以内
+  - rubric.expectedAnswer: 300文字以内
   - mustHavePoints.label: 60文字以内、notes: 120文字以内
   - keywords_any: 各要素 20文字以内、各ポイント最大 8 個
 - JSONはコードフェンス禁止（```json など禁止）
@@ -419,19 +419,19 @@ def _make_avoid_hint(h: dict) -> str:
         return title + ":\n" + "\n".join([f"- {x}" for x in items]) + "\n"
 
     s = ""
-    s += lines("RECENT_TITLES", h.get("recentTitles", []), 20)
-    s += "\n" + lines("RECENT_TAGS", h.get("recentTags", []), 30)
-    s += "\n" + lines("RECENT_MUST_POINTS", h.get("recentMustLabels", []), 30)
-    s += "\nNOTE:\n- 直近と同じ論点・同じ言い回しを避け、別の観点で作問してください。\n"
+    s += lines("RECENT_TITLES", h.get("recentTitles", []), 5)
+    s += "\n" + lines("RECENT_TAGS", h.get("recentTags", []), 6)
+    s += "\n" + lines("RECENT_MUST_POINTS", h.get("recentMustLabels", []), 8)
+    s += "\nNOTE:\n- 直近と同じ論点や言い回しを避け、別の観点で作問してください。\n"
     return s
 
 
 def _build_source_context(snippets: list[str]) -> str:
-    lines = ["SOURCE_SNIPPETS (max 8):"]
+    lines = [f"SOURCE_SNIPPETS (max {SOURCE_SNIPPETS_MAX}):"]
     for i, t in enumerate(snippets[:SOURCE_SNIPPETS_MAX], start=1):
         t2 = t.strip()
-        if len(t2) > 600:
-            t2 = t2[:600] + "…"
+        if len(t2) > 650:
+            t2 = t2[:650] + "…"
         lines.append(f"[{i}] {t2}")
     lines.append("")
     lines.append("KEY_TERMS:")
@@ -491,6 +491,55 @@ def _to_ddb_safe(x):
         return [_to_ddb_safe(v) for v in x]
     return x
 
+# フェンス救済関数
+import re
+
+_JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
+
+def _rescue_json_text(raw: str) -> tuple[str, str | None]:
+    """
+    Try to rescue JSON text from common LLM formatting issues.
+    Returns (cleaned_text, reason) where reason is None if no rescue applied.
+    """
+    if not isinstance(raw, str):
+        return raw, None
+
+    s = raw.strip()
+
+    # 1) Whole response is fenced ```json ... ```
+    m = _JSON_FENCE_RE.match(s)
+    if m:
+        return m.group(1).strip(), "stripped_code_fence_whole"
+
+    # 2) Response contains a fenced block somewhere; extract first fenced block
+    if "```" in s:
+        # Try to find the first fenced block (json or not)
+        # e.g. "blah\n```json\n{...}\n```\nblah"
+        blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", s, flags=re.IGNORECASE)
+        if blocks:
+            candidate = blocks[0].strip()
+            # If candidate looks like JSON, return it
+            if candidate.startswith("{") or candidate.startswith("["):
+                return candidate, "extracted_code_fence_block"
+
+    # 3) As a last resort, extract outermost {...} or [...] region if it looks plausible
+    # (Keep conservative to avoid accidental truncation)
+    first_obj = s.find("{")
+    last_obj = s.rfind("}")
+    if first_obj != -1 and last_obj != -1 and first_obj < last_obj:
+        candidate = s[first_obj : last_obj + 1].strip()
+        if candidate.startswith("{") and candidate.endswith("}"):
+            return candidate, "extracted_outer_object"
+
+    first_arr = s.find("[")
+    last_arr = s.rfind("]")
+    if first_arr != -1 and last_arr != -1 and first_arr < last_arr:
+        candidate = s[first_arr : last_arr + 1].strip()
+        if candidate.startswith("[") and candidate.endswith("]"):
+            return candidate, "extracted_outer_array"
+
+    return raw, None
+
 
 # -----------------------------
 # Lambda handler
@@ -514,6 +563,20 @@ def lambda_handler(event, context):
                 raise AppError("Forbidden", "Host key is required", 403)
 
         aws_request_id = getattr(context, "aws_request_id", "-")
+
+
+        # === runtime config dump (to debug double generation) ===
+        print(
+            "[CFG] effective runtime config",
+            {
+                "requestId": aws_request_id,
+                "MAX_ATTEMPTS": MAX_ATTEMPTS,
+                "MAX_MCP_REFRESH": MAX_MCP_REFRESH,
+                "SOURCE_SNIPPETS_MAX": SOURCE_SNIPPETS_MAX,
+                "SOURCE_CONTEXT_MAX_CHARS": SOURCE_CONTEXT_MAX_CHARS,
+            },
+        )
+
 
         # ---- request params ----
         qs = parse_qs((event.get("rawQueryString") or ""))
@@ -567,7 +630,7 @@ def lambda_handler(event, context):
             broke_for_time = False
             for attempt in range(1, MAX_ATTEMPTS + 1):
                 remaining_ms = context.get_remaining_time_in_millis()
-                if remaining_ms < 6000:
+                if remaining_ms < 12000:
                     print(
                         "[WARN] Not enough time remaining; stop generation loop",
                         {"requestId": aws_request_id, "remainingMs": remaining_ms, "refresh": refresh, "attempt": attempt},
@@ -594,13 +657,27 @@ def lambda_handler(event, context):
                 print("[INFO] Bedrock returned", {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt, "rawLen": raw_len})
 
                 try:
-                    obj = parse_json_strict(raw, LIMITS["raw_json_max"])
+                    cleaned, reason = _rescue_json_text(raw if isinstance(raw, str) else "")
+                    if reason:
+                        print(
+                            "[INFO] rescued json text before parsing",
+                            {
+                                "requestId": aws_request_id,
+                                "refresh": refresh,
+                                "attempt": attempt,
+                                "reason": reason,
+                                "rawLen": len(raw) if isinstance(raw, str) else -1,
+                                "cleanedLen": len(cleaned) if isinstance(cleaned, str) else -1,
+                            },
+                        )
+                    obj = parse_json_strict(cleaned if reason else raw, LIMITS["raw_json_max"])
                     quiz = validate_generation(obj)
                 except (ParseError, SchemaError, SemanticError) as e:
                     print(f"[WARN] generation failed ({e.code}): {e.message}", {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt})
                     if isinstance(raw, str):
                         print(f"[WARN] raw(head): {raw[:300]}")
                     continue
+
 
                 # --- sanitize inputs for hashing ---
                 safe_title = _sanitize_for_hash(quiz["title"])
@@ -651,15 +728,29 @@ def lambda_handler(event, context):
                 # DynamoDB safe (float -> Decimal)
                 item = _to_ddb_safe(item)
 
-                if repo.put_unique(item):
-                    # advance cursor by exactly one "candidate step" when we succeed
-                    _advance_cursor_next_idx(
-                        QUIZ_TABLE_NAME,
-                        category,
-                        level,
-                        expected_old=start_idx,
-                        new_value=(start_idx + refresh + 1),
-                    )
+                ok = repo.put_unique(item)
+                print(
+                    "[DDB] put_unique",
+                    {
+                        "requestId": aws_request_id,
+                        "ok": ok,
+                        "qhash": qhash,
+                        "refresh": refresh,
+                        "attempt": attempt,
+                    },
+                )
+
+                # advance cursor by exactly one "candidate step" when we succeed OR when we hit duplicates
+                # (prevents next invocation from repeating the same query and generating the same hash again)
+                _advance_cursor_next_idx(
+                    QUIZ_TABLE_NAME,
+                    category,
+                    level,
+                    expected_old=q_idx,
+                    new_value=(q_idx + 1),
+                )
+
+                if ok:
                     return _resp(
                         200,
                         {
@@ -674,6 +765,19 @@ def lambda_handler(event, context):
                         },
                         event,
                     )
+
+                # IMPORTANT: do NOT retry within this request (prevents 2nd Bedrock call)
+                # Let the caller retry; next invocation will use advanced cursor.
+                return _resp(
+                    503,
+                    {
+                        "error": {
+                            "code": "DuplicateQuizGenerated",
+                            "message": "重複したクイズが生成されたため保存できませんでした。もう一度お試しください。",
+                        }
+                    },
+                    event,
+                )
 
             if broke_for_time:
                 break
