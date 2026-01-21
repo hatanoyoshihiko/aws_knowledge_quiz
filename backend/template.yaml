@@ -167,9 +167,120 @@ Resources:
         - arm64
     RetentionPolicy: Delete
 
+  # Bedrockのプロンプトマネジメント定義
+  QuizPrompt:
+    Type: AWS::Bedrock::Prompt
+    Properties:
+      Name: !Sub "${AWS::StackName}-quiz-prompt"
+      Description: "AWS quiz generation prompt (managed)"
+      Variants:
+        - Name: "default"
+          ModelId: !Ref BedrockModelId # ← 生成AIリソースは「モデル」
+          TemplateType: "CHAT"
+          InferenceConfiguration:
+            Text:
+              MaxTokens: 2200
+              Temperature: 0.4
+          TemplateConfiguration:
+            Chat:
+              InputVariables:
+                - Name: "category"
+                - Name: "level"
+                - Name: "avoid_duplicate_hint"
+                - Name: "question_style"
+                - Name: "style_guidance"
+                - Name: "source_context"
+              System:
+                - Text: |
+                    あなたはAWSソリューションアーキテクト兼、社内教育用のAWSクイズ作成者です。
+                    ルール:
+                    - 入力で与えられる SOURCE_CONTEXT のみを根拠にすること。
+                    - SOURCE_CONTEXTにない事実を断定しない。不明なら出題しない。
+                    - 日本語で、社内学習に適した明確な問題にする。
+                    - 出力は必ずJSONのみ（前後に文章やコードフェンスを付けない）。
+                    - 1問だけ生成する。
+                    - rubric（Must/Nice/Wrong/ScoringPolicy）を必ず含める。
+                    - level は AWSセッションレベル（100/200/300/400）を数値で使用する。
+                      - 100: 基礎概念、200: 設計/推奨、300: 実装/運用、400: 専門家/トレードオフ
+                    - ScoringPolicyは correct=100%, close=80% を満たすように定義する。
+                    - クイズはトンチを利かしたり、ユーモアに富んだ文章とする。
+                    - 誤解を招く表現はしないこと。
+                    - 設問に対しての回答を明確に求め、YESやNOの表現だけを回答として求めないこと。
+                    - 現在時刻で廃止が決定されている仕組（SSE-C等）は出題しないこと。
+              Messages:
+                - Role: "user"
+                  Content:
+                    - Text: |
+                        次の制約でAWSクイズを1問生成してください。
+
+                        [CONSTRAINTS]
+                        - 文字数制約（必ず守る）:
+                          - title: 60文字以内
+                          - body: 340文字以内
+                          - sourceSummary: 220文字以内
+                          - rubric.expectedAnswer: 300文字以内
+                          - mustHavePoints.label: 60文字以内、notes: 120文字以内
+                          - keywords_any: 各要素 20文字以内、各ポイント最大 8 個
+                        - JSONはコードフェンス禁止（```json など禁止）
+                        - JSON以外の文章を一切出力しない
+                        - category: {{category}}
+                        - level: {{level}}
+                        - language: ja
+                        - avoid_duplicate_hint:
+                        {{avoid_duplicate_hint}}
+
+                        [QUESTION_STYLE]
+                        次の「型」に沿って出題してください（同じ論点の焼き直しを避ける）:
+                        - style: {{question_style}}
+                        - style_guidance:
+                        {{style_guidance}}
+
+                        [SOURCE_CONTEXT]
+                        {{source_context}}
+
+                        [OUTPUT_JSON_SCHEMA]
+                        {
+                          "title": "string",
+                          "body": "string",
+                          "category": "string",
+                          "level": 0,
+                          "rubric": {
+                            "expectedAnswer": "string",
+                            "mustHavePoints": [
+                              {"id":"p1","label":"string","keywords_any":["string"],"notes":"string"}
+                            ],
+                            "niceToHavePoints": [
+                              {"id":"n1","label":"string","keywords_any":["string"],"notes":"string"}
+                            ],
+                            "commonWrongClaims": [
+                              {"id":"w1","label":"string","keywords_any":["string"],"notes":"string"}
+                            ],
+                            "scoringPolicy": {
+                              "correct_threshold": 1.0,
+                              "close_threshold": 0.8,
+                              "must_points_total": 0,
+                              "close_if_must_points_met_at_least": 0,
+                              "correct_if_must_points_met_at_least": 0
+                            }
+                          },
+                          "sourceSummary": "string",
+                          "tags": ["string"]
+                        }
+
+                        mustHavePointsは4〜6個にしてください。
+
+  QuizPromptVersion:
+    Type: AWS::Bedrock::PromptVersion
+    Properties:
+      PromptArn: !GetAtt QuizPrompt.Arn
+      Description: !GetAtt QuizPrompt.UpdatedAt # Prompt更新で差分が出て「最新version」が発行される
+
   GetNextQuizFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Environment:
+        Variables:
+          BEDROCK_PROMPT_ARN: !Ref QuizPromptVersion
       Handler: app.lambda_handler
       CodeUri: src/get_next_quiz/
       Timeout: 60
@@ -183,6 +294,8 @@ Resources:
             - Effect: Allow
               Action:
                 - bedrock:InvokeModel
+                - bedrock:InvokeModelWithResponseStream
+                - bedrock:RenderPrompt
               Resource: "*"
       Events:
         GetNextQuiz:
@@ -233,7 +346,7 @@ Resources:
             Path: /quiz/answer
             Method: POST
 
-  # ✅ ここからが修正点：Type: HttpApi + ApiId: !Ref QuizApi に統合
+  # HttpApi + ApiId: !Ref QuizApi に統合
   SubmitScoreFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -271,6 +384,37 @@ Resources:
             ApiId: !Ref QuizApi
             Path: /scores
             Method: GET
+
+  # ==============================
+  # 復習用：questionId 指定取得
+  # GET /quiz/question
+  # ==============================
+  GetQuizByIdFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-get-quiz-by-id"
+      CodeUri: src/get_quiz_by_id/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      MemorySize: 512
+      Layers:
+        - !Ref CommonLayer
+      Timeout: 10
+      Environment:
+        Variables:
+          QUIZ_TABLE_NAME: !Ref QuizHistoryTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref QuizHistoryTable
+      Events:
+        GetQuizByIdApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref QuizApi
+            Path: /quiz/question
+            Method: get
+
+# Bedrock Prompt Management Define
 
 Outputs:
   ApiEndpoint:
