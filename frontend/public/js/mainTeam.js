@@ -1,7 +1,6 @@
 import { state } from "./state/state.js";
 
 import { loadConfig } from "./api/config.js";
-// ★ named export 前提をやめる（currentQuiz が無くても落ちない）
 import * as quizApi from "./api/quizApi.team.js";
 
 import { el } from "./util/dom.js";
@@ -19,7 +18,7 @@ import { loadHistory, clearHistory } from "./state/history.js";
 
 // タブ単位でチーム名を保持（localStorageだとタブ間で上書きされる）
 const TEAM_NAME_STORAGE = "awsQuizTeamName_session";
-const POLL_MS = 15000; //15秒
+const POLL_MS = 15000; // 15秒
 
 function _normalizeTeamName(name) {
   const n = String(name || "").trim();
@@ -35,25 +34,12 @@ function _toHex(uint8arr) {
     .join("");
 }
 
-/**
- * チーム名から安定した teamId を作る（SHA-256）
- * - 同じ teamName -> 同じ teamId
- * - 大小文字差/前後空白は吸収（正規化）
- * - 返り値形式は互換のため `team:<hash>` にする
- */
 async function _teamIdFromName(teamName) {
   const normalized = _normalizeTeamName(teamName).toLowerCase();
-
-  // 空のときのフォールバック（既存互換）
   if (!normalized) return "team:anonymous";
 
-  // Web Crypto API が使えない環境向けのフォールバック
-  // （基本ブラウザでは使えるが、念のため）
   if (!globalThis.crypto?.subtle?.digest) {
-    // 旧来のスラッグ方式にフォールバック（最悪でも動く）
-    const n = normalized
-      .replace(/\s+/g, "-")
-      .replace(/[^a-z0-9\-_]/g, "");
+    const n = normalized.replace(/\s+/g, "-").replace(/[^a-z0-9\-_]/g, "");
     return `team:${n || "team"}`;
   }
 
@@ -61,7 +47,6 @@ async function _teamIdFromName(teamName) {
   const data = enc.encode(normalized);
   const hashBuf = await crypto.subtle.digest("SHA-256", data);
   const hashHex = _toHex(new Uint8Array(hashBuf));
-
   return `team:${hashHex}`;
 }
 
@@ -71,52 +56,67 @@ function _restoreTeamName() {
 
   try {
     n.value = sessionStorage.getItem(TEAM_NAME_STORAGE) || "";
-  } catch (_) {}
+  } catch (_) { }
 
   n.addEventListener("input", () => {
     try {
       sessionStorage.setItem(TEAM_NAME_STORAGE, (n.value || "").trim());
-    } catch (_) {}
+    } catch (_) { }
   });
 }
 
 // ------------------------
-// quizApi の関数解決（export差分に強くする）
+// quizApi の関数解決（安全側に倒す）
 // ------------------------
 function _getCurrentQuizFn() {
-  // currentQuiz が無い環境があるためフォールバック
   if (typeof quizApi.currentQuiz === "function") return quizApi.currentQuiz;
-  if (typeof quizApi.nextQuiz === "function") {
-    // nextQuiz は引数を取らないのでラップ
-    return async ({ silent = false } = {}) => {
-      if (!silent) {
-        // nextQuiz は内部で toast など出す可能性があるが許容
-      }
-      return quizApi.nextQuiz();
-    };
-  }
   return null;
 }
-
 function _getSubmitAnswerFn() {
   if (typeof quizApi.submitAnswer === "function") return quizApi.submitAnswer;
   return null;
 }
+function _getQuizByIdFn() {
+  if (typeof quizApi.quizById === "function") return quizApi.quizById;
+  return null;
+}
+function _getExitReviewFn() {
+  if (typeof quizApi.exitReviewMode === "function") return quizApi.exitReviewMode;
+  return null;
+}
 
+// ------------------------
+// 画面上のモード表示（任意・安全）
+// ------------------------
+function _renderModeBadge() {
+  const meta = el("qMeta");
+  if (!meta) return;
+
+  const mode = state.quizMode || "live";
+  const suffix = mode === "review" ? "（復習モード）" : "（最新同期）";
+  const base = meta.textContent ? meta.textContent.split("（")[0].trim() : "—";
+  meta.textContent = `${base} ${suffix}`.trim();
+}
+
+// polling は LIVE のときだけ
 async function _poll() {
   const fn = _getCurrentQuizFn();
   if (!fn) return;
+
+  // quizApi 側も review ガードしているが、ここでも余計な通信を避ける
+  if ((state.quizMode || "live") === "review") return;
 
   try {
     await fn({ silent: true });
   } catch (_) {
     // polling では失敗しても無視
+  } finally {
+    _renderModeBadge();
   }
 }
 
 // ------------------------
 // Config fallback (robust)
-// 以前の「相対パスで取れる」挙動を維持する
 // ------------------------
 async function ensureApiEndpoint() {
   if (state.apiEndpoint && String(state.apiEndpoint).trim() !== "") return;
@@ -137,9 +137,10 @@ async function ensureApiEndpoint() {
         state.apiEndpoint = cfg.apiEndpoint;
         return;
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
+  // CloudFront 経由アクセス前提の構成では "." が正解（./quiz/...）
   state.apiEndpoint = ".";
 }
 
@@ -149,8 +150,6 @@ async function ensureApiEndpoint() {
 async function submitScoreDelta({ apiBase, teamId, teamName, delta }) {
   const url = `${apiBase}/scores/submit`;
   const payload = { teamId, teamName, delta };
-
-  console.log("[scores/submit] request", url, payload);
 
   const res = await fetch(url, {
     method: "POST",
@@ -168,11 +167,9 @@ async function submitScoreDelta({ apiBase, teamId, teamName, delta }) {
 
   if (!res.ok) {
     const msg = `[scores/submit] HTTP ${res.status} ${res.statusText} ${(text || "").slice(0, 200)}`;
-    console.warn(msg);
     throw new Error(msg);
   }
 
-  console.log("[scores/submit] response", data ?? text ?? "(no body)");
   return data ?? { ok: true };
 }
 
@@ -181,7 +178,6 @@ async function submitScoreDelta({ apiBase, teamId, teamName, delta }) {
 // ------------------------
 function _getScore100FromScoreText() {
   const raw = (el("scoreText")?.textContent || "").trim();
-  // 例: "score: 20 / 100"
   const m = raw.match(/score:\s*(\d{1,3})/i);
   if (!m) return null;
 
@@ -195,11 +191,11 @@ function _getScore100FromScoreText() {
 // 二重送信・二重加算防止
 // ------------------------
 function _getCurrentQidFromDom() {
-  const ids = ["qid", "qidText", "questionId", "quizId", "currentQid"];
+  const ids = ["qid", "qidText", "questionId", "quizId", "currentQid", "qId"];
   for (const id of ids) {
     const node = el(id);
     const t = node?.textContent ? String(node.textContent).trim() : "";
-    if (t) return t;
+    if (t && t !== "—") return t;
   }
   return null;
 }
@@ -219,14 +215,11 @@ async function submitAnswerAndScore() {
 
   const submitFn = _getSubmitAnswerFn();
   if (!submitFn) {
-    toast("submitAnswer が見つかりません（quizApi.js の export を確認してください）");
-    console.warn("[mainTeam] submitAnswer export not found", quizApi);
+    toast("submitAnswer が見つかりません（quizApi.team.js の export を確認してください）");
     return;
   }
 
   const teamName = _normalizeTeamName(el("teamName")?.value);
-
-  // ★ ここが変更点：hash化のため await
   const teamId = await _teamIdFromName(teamName);
 
   const qid = _getCurrentQidFromDom();
@@ -240,22 +233,15 @@ async function submitAnswerAndScore() {
   _submitInFlight = true;
 
   try {
-    // ① 採点（戻り値は信用しない）
     try {
       await submitFn();
     } catch (e) {
-      console.warn("[score] submitAnswer failed", e);
       toast("採点に失敗しました（Console参照）");
       return;
     }
 
-    // ② scoreText から 0〜100 を取得して送る
     const delta = _getScore100FromScoreText();
     if (delta == null || delta <= 0) {
-      console.warn("[score] could not parse scoreText or delta<=0, skip submit", {
-        scoreText: el("scoreText")?.textContent || "",
-        delta,
-      });
       toast("0点のためスコアは加算されません");
       return;
     }
@@ -265,7 +251,6 @@ async function submitAnswerAndScore() {
       _lastScoredKey = scoreKey;
       toast(`スコア送信: ${teamName} +${delta}pts`);
     } catch (e) {
-      console.warn("[score] submit failed", e);
       toast(`スコア送信失敗: ${String(e.message || e).slice(0, 140)}`);
     }
   } finally {
@@ -277,6 +262,9 @@ async function submitAnswerAndScore() {
 // Boot
 // ------------------------
 window.addEventListener("DOMContentLoaded", async () => {
+  // state 初期化（無くてもOK）
+  state.quizMode = "live";
+
   setLoading(true);
   try {
     await loadConfig();
@@ -289,6 +277,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   setupSpeech();
   loadHistory();
   wirePointsToggle();
+  _renderModeBadge();
 
   setupShortcuts({
     submitAnswer: submitAnswerAndScore,
@@ -300,12 +289,40 @@ window.addEventListener("DOMContentLoaded", async () => {
   el("submitBtn")?.addEventListener("click", submitAnswerAndScore);
   el("micBtn")?.addEventListener("click", toggleMic);
 
-  const refreshFn = _getCurrentQuizFn();
-  const refresh = () =>
-    refreshFn ? refreshFn({ silent: false }) : toast("quiz取得関数が見つかりません");
+  const currentFn = _getCurrentQuizFn();
+  const quizByIdFn = _getQuizByIdFn();
+  const exitReviewFn = _getExitReviewFn();
+
+  // 更新ボタン＝「最新へ戻る（LIVE）」＋即時同期
+  const refresh = async () => {
+    // ★復習解除 → ★強制同期（同一ID判定を飛ばす保険）
+    if (exitReviewFn) exitReviewFn({ silent: true });
+    state.quizMode = "live";
+    _renderModeBadge();
+
+    if (!currentFn) return toast("currentQuiz が見つかりません（quizApi.team.js を確認）");
+    await currentFn({ silent: false, force: true });
+    _renderModeBadge();
+  };
 
   el("refreshBtn")?.addEventListener("click", refresh);
   el("refreshBtnSide")?.addEventListener("click", refresh);
+
+  // 履歴クリックイベント（REVIEW）
+  window.addEventListener("quiz:review", async (ev) => {
+    const qid = ev?.detail?.questionId;
+    if (!qid) return;
+
+    // quizApi に寄せる（DOM直書きをやめる）
+    if (!quizByIdFn) return toast("quizById が見つかりません（quizApi.team.js を確認）");
+
+    try {
+      await quizByIdFn(qid, { silent: false });
+      _renderModeBadge();
+    } catch (e) {
+      toast(`復習取得に失敗: ${String(e.message || e).slice(0, 140)}`);
+    }
+  });
 
   el("clearBtn")?.addEventListener("click", () => {
     const a = el("answer");
@@ -327,11 +344,12 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   setConn(!!state.apiEndpoint, state.apiEndpoint ? "設定OK" : "未接続");
 
-  // 初回同期
-  if (refreshFn) {
-    await refreshFn({ silent: true });
+  // 初回同期（LIVE）
+  if (currentFn) {
+    await currentFn({ silent: true, force: true });
+    _renderModeBadge();
     setInterval(_poll, POLL_MS);
   } else {
-    console.warn("[mainTeam] currentQuiz/nextQuiz export not found", quizApi);
+    console.warn("[mainTeam] currentQuiz export not found", quizApi);
   }
 });
