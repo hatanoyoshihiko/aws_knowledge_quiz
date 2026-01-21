@@ -9,6 +9,8 @@ def env(name: str, default: str | None = None) -> str:
 
 STAGE_NAME = env("STAGE_NAME", "dev")
 BEDROCK_MODEL_ID = env("BEDROCK_MODEL_ID")
+BEDROCK_PROMPT_ARN = env("BEDROCK_PROMPT_ARN", "")
+BEDROCK_PROMPT_NAME = env("BEDROCK_PROMPT_NAME", "")
 QUIZ_TABLE_NAME = env("QUIZ_TABLE_NAME")
 
 MAX_ATTEMPTS = int(env("MAX_ATTEMPTS", "1")) #同一の MCP 検索結果（SOURCE_CONTEXT）に対して、Bedrock によるクイズ生成を何回まで再試行するか、低いと生成時間が短くなります

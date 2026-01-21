@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import json
 import hashlib
 from decimal import Decimal
@@ -10,6 +11,8 @@ from urllib.parse import parse_qs
 from common.bedrock import BedrockClient
 from common.config import (
     BEDROCK_MODEL_ID,
+    BEDROCK_PROMPT_ARN,
+    BEDROCK_PROMPT_NAME,
     HOST_KEY,
     DUPLICATE_HINT_WINDOW,
     MAX_ATTEMPTS,
@@ -26,86 +29,6 @@ from common.mcp import McpClient
 from common.normalize import question_hash
 from common.schema import ALLOWED_CATEGORIES, ALLOWED_LEVELS, LIMITS
 from common.validate import parse_json_strict, validate_generation
-
-# -----------------------------
-# Bedrock prompts
-# -----------------------------
-
-SYSTEM_PROMPT = """あなたはAWSソリューションアーキテクト兼、社内教育用のAWSクイズ作成者です。
-ルール:
-- 入力で与えられる SOURCE_CONTEXT のみを根拠にすること。
-- SOURCE_CONTEXTにない事実を断定しない。不明なら出題しない。
-- 日本語で、社内学習に適した明確な問題にする。
-- 出力は必ずJSONのみ（前後に文章やコードフェンスを付けない）。
-- 1問だけ生成する。
-- rubric（Must/Nice/Wrong/ScoringPolicy）を必ず含める。
-- level は AWSセッションレベル（100/200/300/400）を数値で使用する。
-  - 100: 基礎概念、200: 設計/推奨、300: 実装/運用、400: 専門家/トレードオフ
-- ScoringPolicyは correct=100%, close=80% を満たすように定義する。
-- クイズはトンチを利かしたり、ユーモアに富んだ文章とする。
-- 誤解を招く表現はしないこと。
-- 設問に対しての回答を明確に求め、YESやNOの表現だけを回答として求めないこと。
-- 現在時刻で廃止が決定されている仕組（SSE-C等）は出題しないこと。
-"""
-
-USER_PROMPT_TEMPLATE = """次の制約でAWSクイズを1問生成してください。
-
-[CONSTRAINTS]
-- 文字数制約（必ず守る）:
-  - title: 60文字以内
-  - body: 340文字以内
-  - sourceSummary: 220文字以内
-  - rubric.expectedAnswer: 300文字以内
-  - mustHavePoints.label: 60文字以内、notes: 120文字以内
-  - keywords_any: 各要素 20文字以内、各ポイント最大 8 個
-- JSONはコードフェンス禁止（```json など禁止）
-- JSON以外の文章を一切出力しない
-- category: {category}
-- level: {level}
-- language: ja
-- avoid_duplicate_hint:
-{avoid_duplicate_hint}
-
-[QUESTION_STYLE]
-次の「型」に沿って出題してください（同じ論点の焼き直しを避ける）:
-- style: {question_style}
-- style_guidance:
-{style_guidance}
-
-[SOURCE_CONTEXT]
-{source_context}
-
-[OUTPUT_JSON_SCHEMA]
-{{
-  "title": "string",
-  "body": "string",
-  "category": "string",
-  "level": 0,
-  "rubric": {{
-    "expectedAnswer": "string",
-    "mustHavePoints": [
-      {{"id":"p1","label":"string","keywords_any":["string"],"notes":"string"}}
-    ],
-    "niceToHavePoints": [
-      {{"id":"n1","label":"string","keywords_any":["string"],"notes":"string"}}
-    ],
-    "commonWrongClaims": [
-      {{"id":"w1","label":"string","keywords_any":["string"],"notes":"string"}}
-    ],
-    "scoringPolicy": {{
-      "correct_threshold": 1.0,
-      "close_threshold": 0.8,
-      "must_points_total": 0,
-      "close_if_must_points_met_at_least": 0,
-      "correct_if_must_points_met_at_least": 0
-    }}
-  }},
-  "sourceSummary": "string",
-  "tags": ["string"]
-}}
-
-mustHavePointsは4〜6個にしてください。
-"""
 
 # -----------------------------
 # MCP query components (fast + deterministic diversification)
@@ -491,10 +414,76 @@ def _to_ddb_safe(x):
         return [_to_ddb_safe(v) for v in x]
     return x
 
+
+def _mask(s: str | None, keep: int = 6) -> str:
+    if not s:
+        return ""
+    s = str(s)
+    if len(s) <= keep:
+        return "*" * len(s)
+    return s[:keep] + "..."
+
+
+def _resolve_effective_prompt_arn(bedrock: BedrockClient, request_id: str) -> str:
+    """
+    Resolve prompt arn once per invocation.
+
+    Priority:
+      1) BEDROCK_PROMPT_ARN (env) if set
+      2) Resolve by BEDROCK_PROMPT_NAME (env) via bedrock-agent
+    """
+    env_prompt_arn = (BEDROCK_PROMPT_ARN or "").strip()
+    env_prompt_name = (BEDROCK_PROMPT_NAME or "").strip()
+
+    # extra: allow override by raw env (helps debug if config layer mismatches)
+    if not env_prompt_arn:
+        env_prompt_arn = (os.environ.get("BEDROCK_PROMPT_ARN") or "").strip()
+    if not env_prompt_name:
+        env_prompt_name = (os.environ.get("BEDROCK_PROMPT_NAME") or "").strip()
+
+    print(
+        "[CFG] prompt config",
+        {
+            "requestId": request_id,
+            "BEDROCK_PROMPT_ARN": _mask(env_prompt_arn, 18),
+            "BEDROCK_PROMPT_NAME": env_prompt_name,
+        },
+    )
+
+    if env_prompt_arn:
+        return env_prompt_arn
+
+    if not env_prompt_name:
+        raise AppError(
+            "ConfigError",
+            "Missing BEDROCK_PROMPT_ARN (and BEDROCK_PROMPT_NAME is empty)",
+            500,
+        )
+
+    try:
+        resolved = bedrock.resolve_latest_prompt_version_arn(prompt_name=env_prompt_name)
+        print(
+            "[INFO] resolved latest prompt version arn",
+            {"requestId": request_id, "promptArn": _mask(resolved, 18)},
+        )
+        return resolved
+    except Exception as ex:
+        print(
+            "[ERROR] failed to resolve latest prompt version arn",
+            {"requestId": request_id, "error": repr(ex)},
+        )
+        raise AppError(
+            "ConfigError",
+            "Missing BEDROCK_PROMPT_ARN (and failed to resolve from BEDROCK_PROMPT_NAME)",
+            500,
+        )
+
+
 # フェンス救済関数
 import re
 
 _JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
+
 
 def _rescue_json_text(raw: str) -> tuple[str, str | None]:
     """
@@ -527,14 +516,14 @@ def _rescue_json_text(raw: str) -> tuple[str, str | None]:
     first_obj = s.find("{")
     last_obj = s.rfind("}")
     if first_obj != -1 and last_obj != -1 and first_obj < last_obj:
-        candidate = s[first_obj : last_obj + 1].strip()
+        candidate = s[first_obj: last_obj + 1].strip()
         if candidate.startswith("{") and candidate.endswith("}"):
             return candidate, "extracted_outer_object"
 
     first_arr = s.find("[")
     last_arr = s.rfind("]")
     if first_arr != -1 and last_arr != -1 and first_arr < last_arr:
-        candidate = s[first_arr : last_arr + 1].strip()
+        candidate = s[first_arr: last_arr + 1].strip()
         if candidate.startswith("[") and candidate.endswith("]"):
             return candidate, "extracted_outer_array"
 
@@ -564,7 +553,6 @@ def lambda_handler(event, context):
 
         aws_request_id = getattr(context, "aws_request_id", "-")
 
-
         # === runtime config dump (to debug double generation) ===
         print(
             "[CFG] effective runtime config",
@@ -576,7 +564,6 @@ def lambda_handler(event, context):
                 "SOURCE_CONTEXT_MAX_CHARS": SOURCE_CONTEXT_MAX_CHARS,
             },
         )
-
 
         # ---- request params ----
         qs = parse_qs((event.get("rawQueryString") or ""))
@@ -601,6 +588,9 @@ def lambda_handler(event, context):
         bedrock = BedrockClient()
         mcp = McpClient(MCP_ENDPOINT, MCP_API_KEY)
 
+        # ★ Resolve prompt ARN once per invocation (avoid conflicting checks / repeated lookups)
+        effective_prompt_arn = _resolve_effective_prompt_arn(bedrock, aws_request_id)
+
         # ---- duplicate-avoid hints from DDB (GSI_Recent) ----
         hints = repo.get_recent_hints(DUPLICATE_HINT_WINDOW)
         avoid_hint = _make_avoid_hint(hints)
@@ -619,7 +609,10 @@ def lambda_handler(event, context):
             q_idx = start_idx + refresh
             query, style_name, style_guidance = _build_mcp_query_and_style(category, level, q_idx)
 
-            print("[INFO] MCP search", {"requestId": aws_request_id, "refresh": refresh, "query": query, "style": style_name})
+            print(
+                "[INFO] MCP search",
+                {"requestId": aws_request_id, "refresh": refresh, "query": query, "style": style_name},
+            )
 
             mcp_snippets = mcp.search(query=query, max_snippets=SOURCE_SNIPPETS_MAX)
             snippets = [s.text for s in mcp_snippets]
@@ -638,23 +631,25 @@ def lambda_handler(event, context):
                     broke_for_time = True
                     break
 
-                user_prompt = USER_PROMPT_TEMPLATE.format(
-                    category=category,
-                    level=level,
-                    avoid_duplicate_hint=avoid_hint,
-                    question_style=style_name,
-                    style_guidance=style_guidance,
-                    source_context=source_context,
-                )
+                prompt_vars = {
+                    "category": str(category),
+                    "level": str(level),
+                    "avoid_duplicate_hint": str(avoid_hint),
+                    "question_style": str(style_name),
+                    "style_guidance": str(style_guidance),
+                    "source_context": str(source_context),
+                }
 
-                raw = bedrock.converse_json(
-                    model_id=BEDROCK_MODEL_ID,
-                    system=SYSTEM_PROMPT,
-                    user=user_prompt,
+                raw = bedrock.converse_prompt_json(
+                    prompt_arn=effective_prompt_arn,
+                    prompt_variables=prompt_vars,
                 )
 
                 raw_len = len(raw) if isinstance(raw, str) else -1
-                print("[INFO] Bedrock returned", {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt, "rawLen": raw_len})
+                print(
+                    "[INFO] Bedrock returned",
+                    {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt, "rawLen": raw_len},
+                )
 
                 try:
                     cleaned, reason = _rescue_json_text(raw if isinstance(raw, str) else "")
@@ -673,11 +668,13 @@ def lambda_handler(event, context):
                     obj = parse_json_strict(cleaned if reason else raw, LIMITS["raw_json_max"])
                     quiz = validate_generation(obj)
                 except (ParseError, SchemaError, SemanticError) as e:
-                    print(f"[WARN] generation failed ({e.code}): {e.message}", {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt})
+                    print(
+                        f"[WARN] generation failed ({e.code}): {e.message}",
+                        {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt},
+                    )
                     if isinstance(raw, str):
                         print(f"[WARN] raw(head): {raw[:300]}")
                     continue
-
 
                 # --- sanitize inputs for hashing ---
                 safe_title = _sanitize_for_hash(quiz["title"])
