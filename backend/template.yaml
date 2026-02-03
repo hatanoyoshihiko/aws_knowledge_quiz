@@ -32,7 +32,7 @@ Parameters:
 Globals:
   Function:
     Runtime: python3.14
-    Timeout: 30
+    Timeout: 60
     MemorySize: 512
     Tracing: Active
     Architectures:
@@ -204,7 +204,6 @@ Resources:
                       - 100: 基礎概念、200: 設計/推奨、300: 実装/運用、400: 専門家/トレードオフ
                     - ScoringPolicyは correct=100%, close=80% を満たすように定義する。
                     - クイズはトンチを利かしたり、ユーモアに富んだ文章とする。
-                    - 誤解を招く表現はしないこと。
                     - 設問に対しての回答を明確に求め、YESやNOの表現だけを回答として求めないこと。
                     - 現在時刻で廃止が決定されている仕組（SSE-C等）は出題しないこと。
               Messages:
@@ -216,11 +215,11 @@ Resources:
                         [CONSTRAINTS]
                         - 文字数制約（必ず守る）:
                           - title: 60文字以内
-                          - body: 340文字以内
+                          - body: 300文字以内
                           - sourceSummary: 220文字以内
                           - rubric.expectedAnswer: 300文字以内
-                          - mustHavePoints.label: 60文字以内、notes: 120文字以内
-                          - keywords_any: 各要素 20文字以内、各ポイント最大 8 個
+                          - mustHavePoints.label: 45文字以内、notes: 90文字以内
+                          - keywords_any: 各要素 20文字以内、各ポイント最大 6 個
                         - JSONはコードフェンス禁止（```json など禁止）
                         - JSON以外の文章を一切出力しない
                         - category: {{category}}
