@@ -1,90 +1,155 @@
 from __future__ import annotations
-import boto3
+
+import json
+import logging
+from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
+
 
 class BedrockClient:
-    def __init__(self):
-        self._rt = boto3.client("bedrock-runtime")
-        self._agent = boto3.client("bedrock-agent")
-        self._cached_prompt_version_arn: str | None = None
+    def __init__(self, client, model_id: str, prompt_arn: Optional[str] = None):
+        self._client = client
+        self._model_id = model_id
+        self._prompt_arn = prompt_arn
 
-    def resolve_latest_prompt_version_arn(self, *, prompt_name: str) -> str:
-        """
-        Resolve latest PromptVersion ARN by prompt name.
-        Cached per execution environment.
-        """
-        if self._cached_prompt_version_arn:
-            return self._cached_prompt_version_arn
+    def converse(self, *, messages: list[dict[str, Any]], **kwargs) -> dict[str, Any]:
+        return self._client.converse(modelId=self._model_id, messages=messages, **kwargs)
 
-        if not prompt_name.strip():
-            raise ValueError("prompt_name is empty")
+    def converse_json(self, *, messages: list[dict[str, Any]], **kwargs) -> dict[str, Any]:
+        raw = self.converse(messages=messages, **kwargs)
+        text = _extract_assistant_text(raw)
+        return json.loads(_extract_json_object(text))
 
-        # 1) find prompt by name
-        next_token = None
-        prompt_arn = None
-        while True:
-            kwargs = {"maxResults": 50}
-            if next_token:
-                kwargs["nextToken"] = next_token
-            resp = self._agent.list_prompts(**kwargs)
-
-            for p in resp.get("promptSummaries", []):
-                if (p.get("name") or "").strip() == prompt_name.strip():
-                    prompt_arn = p.get("arn")
-                    break
-            if prompt_arn:
-                break
-
-            next_token = resp.get("nextToken")
-            if not next_token:
-                break
-
-        if not prompt_arn:
-            raise ValueError(f"Prompt not found: name={prompt_name}")
-
-        # 2) list versions and pick max version
-        next_token = None
-        latest = None  # dict with arn, version
-        while True:
-            kwargs = {"promptArn": prompt_arn, "maxResults": 50}
-            if next_token:
-                kwargs["nextToken"] = next_token
-            resp = self._agent.list_prompt_versions(**kwargs)
-
-            for v in resp.get("promptVersionSummaries", []):
-                ver = v.get("version")
-                arn = v.get("arn")
-                if ver is None or arn is None:
-                    continue
-                if (latest is None) or (int(ver) > int(latest["version"])):
-                    latest = {"version": int(ver), "arn": arn}
-
-            next_token = resp.get("nextToken")
-            if not next_token:
-                break
-
-        if not latest:
-            raise ValueError(f"No PromptVersion exists for prompt: {prompt_arn}")
-
-        self._cached_prompt_version_arn = latest["arn"]
-        return latest["arn"]
-
+    # ★追加：Prompt management の prompt version ARN を使って呼び出す
     def converse_prompt_json(
         self,
         *,
         prompt_arn: str,
-        prompt_variables: dict[str, str],
-        messages: list[dict] | None = None,
+        prompt_variables: dict[str, object],
+        messages: Optional[list[dict[str, Any]]] = None,
     ) -> str:
-        pv = {k: {"text": v} for k, v in (prompt_variables or {}).items()}
+        """
+        Prompt management の prompt version ARN を modelId に指定して Converse する。
 
-        req: dict = {"modelId": prompt_arn, "promptVariables": pv}
+        Bedrock の promptVariables は各値が dict 形式（例: {"text": "..."}）を要求する。
+        既存実装（get_next_quiz）は str を渡してくるため、ここで後方互換の変換を行う。
+
+        返り値は assistant テキスト（JSON文字列）を返す。
+        """
+        if not isinstance(prompt_arn, str) or not prompt_arn.strip():
+            raise ValueError("prompt_arn is required")
+        if not isinstance(prompt_variables, dict):
+            raise ValueError("prompt_variables must be dict")
+
+        def _coerce_var(v: object) -> dict[str, Any]:
+            # すでに dict ならそのまま（新形式）
+            if isinstance(v, dict):
+                return v
+            # 文字列/数値/真偽などは text に寄せる（旧形式互換）
+            if v is None:
+                return {"text": ""}
+            if isinstance(v, (str, int, float, bool)):
+                return {"text": str(v)}
+            # それ以外（list等）は JSON 文字列にする
+            try:
+                return {"text": json.dumps(v, ensure_ascii=False)}
+            except Exception:
+                return {"text": str(v)}
+
+        prompt_vars_norm = {k: _coerce_var(v) for k, v in prompt_variables.items() if isinstance(k, str)}
+
+        req: dict[str, Any] = {
+            "modelId": prompt_arn.strip(),
+            "promptVariables": prompt_vars_norm,
+        }
         if messages:
             req["messages"] = messages
 
-        resp = self._rt.converse(**req)
+        raw = self._client.converse(**req)
+        return _extract_assistant_text(raw)
 
-        parts: list[str] = []
-        for c in resp["output"]["message"]["content"]:
-            if "text" in c:
-                parts.append(c["text"])
-        return "".join(parts).strip()
+
+    # ★追加：prompt name（またはID）から最新の version ARN を引く（必要なら）
+    def resolve_latest_prompt_version_arn(self, *, prompt_name: str) -> str:
+        """
+        bedrock-agent の ListPrompts/GetPrompt を使って prompt の最新 version ARN を返す。
+        prompt_name が ARN ならそのまま返す。
+        """
+        if not isinstance(prompt_name, str) or not prompt_name.strip():
+            raise ValueError("prompt_name is required")
+        p = prompt_name.strip()
+        if p.startswith("arn:"):
+            return p
+
+        agent = __import__("boto3").client("bedrock-agent")
+        resp = agent.list_prompts(promptIdentifier=p)
+
+        summaries = resp.get("promptSummaries") or []
+        best_arn = None
+        best_ver = -1
+
+        for s in summaries:
+            if not isinstance(s, dict):
+                continue
+            arn = s.get("arn")
+            ver = s.get("version")
+            # version は数値文字列のことが多いので数値化して比較
+            try:
+                ver_i = int(str(ver))
+            except Exception:
+                continue
+            if isinstance(arn, str) and arn and ver_i > best_ver:
+                best_ver = ver_i
+                best_arn = arn
+
+        if not best_arn:
+            raise RuntimeError(f"Could not resolve latest prompt version arn for promptIdentifier={p}")
+        return best_arn
+
+
+def _extract_assistant_text(raw: dict[str, Any]) -> str:
+    """
+    Bedrock Converse の response から assistant の text を連結して返す。
+    """
+    parts = raw.get("output", {}).get("message", {}).get("content", [])
+    out = []
+    if isinstance(parts, list):
+        for p in parts:
+            if isinstance(p, dict) and "text" in p and isinstance(p["text"], str):
+                out.append(p["text"])
+    return "".join(out).strip()
+
+
+def _extract_json_object(s: str) -> str:
+    """
+    文字列中の最初の { から対応する } までを抜き出す簡易パーサ。
+    """
+    start = s.find("{")
+    if start == -1:
+        raise ValueError("No JSON object start '{' found in model output")
+
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return s[start : i + 1]
+
+    raise ValueError("Unclosed JSON object in model output")

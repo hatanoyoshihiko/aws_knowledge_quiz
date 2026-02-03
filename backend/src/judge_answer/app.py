@@ -1,22 +1,21 @@
 from __future__ import annotations
-import json
 
-from decimal import Decimal
+import json
 import logging
+from decimal import Decimal
+
+import boto3
+
+from common.bedrock import BedrockClient
+from common.config import BEDROCK_MODEL_ID, QUIZ_TABLE_NAME
+from common.ddb import QuizRepo
+from common.errors import AppError, ParseError, SchemaError, SemanticError
+from common.schema import LIMITS
+from common.validate import parse_json_strict, validate_judgment
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-from common.config import BEDROCK_MODEL_ID, QUIZ_TABLE_NAME
-from common.bedrock import BedrockClient
-from common.ddb import QuizRepo
-from common.validate import parse_json_strict, validate_judgment
-from common.schema import LIMITS
-from common.errors import AppError, ParseError, SchemaError, SemanticError
-
-# NOTE:
-# - mustPointsMet / missingMustPoints には mustHavePoints の id（例: "p1"）のみを入れる
-# - niceToHavePoints の id（例: "n1"）は nicePointsMet に入れる
 SYSTEM_PROMPT = """あなたはAWSクイズの採点者です。ルール:
 - 採点根拠は RUBRIC と USER_ANSWER のみを使う。
 - 出力は必ずJSONのみ（前後に文章を付けない）。
@@ -64,6 +63,7 @@ USER_PROMPT_TEMPLATE = """次のクイズを採点してください。
 - 配列内の要素は重複させない。
 """
 
+
 def _resp(status: int, body: dict):
     return {
         "statusCode": status,
@@ -71,16 +71,14 @@ def _resp(status: int, body: dict):
         "body": json.dumps(body, ensure_ascii=False),
     }
 
+
 def _json_default(o):
     if isinstance(o, Decimal):
-        # 整数なら int、そうでなければ float
         return int(o) if o % 1 == 0 else float(o)
     raise TypeError(f"Not JSON serializable: {type(o)}")
 
+
 def _extract_ids(rubric: dict, key: str) -> list[str]:
-    """
-    rubric[key] が [{"id":"p1", ...}, ...] の配列である前提で id を取り出す。
-    """
     out: list[str] = []
     if not isinstance(rubric, dict):
         return out
@@ -95,10 +93,8 @@ def _extract_ids(rubric: dict, key: str) -> list[str]:
             out.append(pid.strip())
     return out
 
+
 def _find_point_by_id(rubric: dict, pid: str) -> dict | None:
-    """
-    rubric 内（mustHavePoints / niceToHavePoints / commonWrongClaims）から id一致の要素を返す。
-    """
     if not isinstance(rubric, dict) or not isinstance(pid, str):
         return None
     key = pid.strip().lower()
@@ -114,11 +110,8 @@ def _find_point_by_id(rubric: dict, pid: str) -> dict | None:
                 return it
     return None
 
+
 def _id_to_label(pid: str, rubric: dict) -> str:
-    """
-    id（p1/n1/w1など）から UI 表示用の文言を返す。
-    get_next_quiz 側の rubric では description ではなく label が本体。
-    """
     try:
         it = _find_point_by_id(rubric, pid)
         if not it:
@@ -128,10 +121,78 @@ def _id_to_label(pid: str, rubric: dict) -> str:
     except Exception:
         return ""
 
+
 def _normalize_p(pid: str) -> str:
-    # "p1" -> "P1", "n1" -> "N1"
-    s = str(pid or "").strip()
-    return s.upper()
+    return str(pid or "").strip().upper()
+
+
+def _to_system_param(system: str | list | tuple | None):
+    if system is None:
+        return None
+    if isinstance(system, (list, tuple)):
+        return list(system)
+    if isinstance(system, str):
+        s = system.strip()
+        if not s:
+            return None
+        return [{"text": s}]
+    raise TypeError(f"Invalid system type: {type(system)}")
+
+
+def _call_bedrock_judge_json(bedrock: BedrockClient, *, system: str, user: str) -> object:
+    system_param = _to_system_param(system)
+    messages = [{"role": "user", "content": [{"text": user}]}]
+
+    if not hasattr(bedrock, "converse_json"):
+        raise AttributeError("BedrockClient has no converse_json")
+
+    # Layer 実装（messages+system(list)）に合わせる
+    try:
+        if system_param is None:
+            return bedrock.converse_json(messages=messages)
+        return bedrock.converse_json(messages=messages, system=system_param)
+    except TypeError:
+        # 旧実装へのフォールバック
+        try:
+            return bedrock.converse_json(model_id=BEDROCK_MODEL_ID, system=system, user=user)
+        except TypeError:
+            return bedrock.converse_json(system=system, user=user)
+
+
+def _coerce_bedrock_output_to_obj(raw: object) -> dict:
+    """
+    BedrockClient.converse_json の返り値揺れを吸収して dict にする。
+    - dict ならそのまま
+    - str なら JSON として parse
+    - dict に {"json": "..."} / {"text": "..."} のように包まれているケースも救う
+    """
+    if isinstance(raw, dict):
+        # すでに採点結果が入っているならそのまま返す
+        if "result" in raw and "score" in raw:
+            return raw
+
+        # ラップ形式っぽいキーがある場合に救う
+        for k in ("json", "text", "content"):
+            v = raw.get(k)
+            if isinstance(v, str):
+                return parse_json_strict(v, LIMITS["raw_json_max_judge"])
+
+        # Bedrockの生レスポンスをそのまま返してしまってる場合はここで落とす
+        raise AppError(
+            "PARSE_ERROR",
+            "Bedrock response dict does not look like judgment JSON",
+            400,
+        )
+
+    if isinstance(raw, str):
+        return parse_json_strict(raw, LIMITS["raw_json_max_judge"])
+
+    raise AppError(
+        "PARSE_ERROR",
+        f"Bedrock response must be string or dict, got {type(raw)}",
+        400,
+    )
+
 
 def lambda_handler(event, context):
     try:
@@ -159,11 +220,12 @@ def lambda_handler(event, context):
         rubric = item["Rubric"]
         question_body = item["Question"]["Body"]
 
-        # MUST/NICE の id 一覧を明示して、Bedrock に混入させない
         must_ids = _extract_ids(rubric, "mustHavePoints")
         nice_ids = _extract_ids(rubric, "niceToHavePoints")
 
-        bedrock = BedrockClient()
+        brt = boto3.client("bedrock-runtime")
+        bedrock = BedrockClient(brt, BEDROCK_MODEL_ID)
+
         user_prompt = USER_PROMPT_TEMPLATE.format(
             question_body=question_body,
             rubric_json=json.dumps(rubric, ensure_ascii=False, default=_json_default),
@@ -172,26 +234,18 @@ def lambda_handler(event, context):
             nice_ids_json=json.dumps(nice_ids, ensure_ascii=False),
         )
 
-        raw = bedrock.converse_json(
-            model_id=BEDROCK_MODEL_ID,
-            system=SYSTEM_PROMPT,
-            user=user_prompt,
-        )
+        raw = _call_bedrock_judge_json(bedrock, system=SYSTEM_PROMPT, user=user_prompt)
 
-        obj = parse_json_strict(raw, LIMITS["raw_json_max_judge"])
+        # ★ここが重要：raw の型揺れを吸収して dict にする
+        obj = _coerce_bedrock_output_to_obj(raw)
 
-        # validate_judgment が unknown field を許容しない場合に備えて、
-        # nicePointsMet は validate 前に除去（must/nice 混入の修正はプロンプトで実施）
-        if isinstance(obj, dict) and "nicePointsMet" in obj:
-            try:
-                obj = dict(obj)
-                obj.pop("nicePointsMet", None)
-            except Exception:
-                pass
+        # validate_judgment が unknown field を許容しない場合に備えて nicePointsMet を除去
+        if "nicePointsMet" in obj:
+            obj = dict(obj)
+            obj.pop("nicePointsMet", None)
 
         judge = validate_judgment(obj, rubric)
 
-        # UI表示用（P/N + label）を返す：既存レスポンスは維持しつつ details を追加
         must_points = judge.get("mustPointsMet") or []
         missing_points = judge.get("missingMustPoints") or []
 
@@ -199,23 +253,13 @@ def lambda_handler(event, context):
         for pid in must_points:
             if not isinstance(pid, str):
                 continue
-            must_details.append(
-                {
-                    "p": _normalize_p(pid),
-                    "label": _id_to_label(pid, rubric),
-                }
-            )
+            must_details.append({"p": _normalize_p(pid), "label": _id_to_label(pid, rubric)})
 
         missing_details = []
         for pid in missing_points:
             if not isinstance(pid, str):
                 continue
-            missing_details.append(
-                {
-                    "p": _normalize_p(pid),
-                    "label": _id_to_label(pid, rubric),
-                }
-            )
+            missing_details.append({"p": _normalize_p(pid), "label": _id_to_label(pid, rubric)})
 
         return _resp(
             200,
@@ -224,7 +268,6 @@ def lambda_handler(event, context):
                 "score": float(judge["score"]),
                 "mustPointsMet": judge["mustPointsMet"],
                 "missingMustPoints": judge["missingMustPoints"],
-                # 追加フィールド（UI向け）
                 "mustPointsMetDetails": must_details,
                 "missingMustPointsDetails": missing_details,
                 "feedback": judge["feedback"],

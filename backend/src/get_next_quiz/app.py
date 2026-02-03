@@ -585,7 +585,10 @@ def lambda_handler(event, context):
 
         # ---- clients ----
         repo = QuizRepo(QUIZ_TABLE_NAME)
-        bedrock = BedrockClient()
+
+        brt = boto3.client("bedrock-runtime")
+        bedrock = BedrockClient(brt, BEDROCK_MODEL_ID)
+
         mcp = McpClient(MCP_ENDPOINT, MCP_API_KEY)
 
         # ★ Resolve prompt ARN once per invocation (avoid conflicting checks / repeated lookups)
