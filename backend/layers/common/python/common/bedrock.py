@@ -88,3 +88,35 @@ class BedrockClient:
             if "text" in c:
                 parts.append(c["text"])
         return "".join(parts).strip()
+
+    def converse_json(
+        self,
+        *,
+        model_id: str,
+        system: str,
+        user: str,
+    ) -> str:
+        """
+        Simple converse API call for JSON responses.
+        Returns the text content from the model response.
+        """
+        messages = [
+            {
+                "role": "user",
+                "content": [{"text": user}]
+            }
+        ]
+
+        req = {
+            "modelId": model_id,
+            "messages": messages,
+            "system": [{"text": system}],
+        }
+
+        resp = self._rt.converse(**req)
+
+        parts: list[str] = []
+        for c in resp["output"]["message"]["content"]:
+            if "text" in c:
+                parts.append(c["text"])
+        return "".join(parts).strip()
