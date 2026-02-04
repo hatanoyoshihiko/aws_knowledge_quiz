@@ -8,16 +8,54 @@ logger = logging.getLogger(__name__)
 
 
 class BedrockClient:
-    def __init__(self, client, model_id: str, prompt_arn: Optional[str] = None):
+    def __init__(
+        self,
+        client,
+        model_id: str,
+        prompt_arn: Optional[str] = None,
+        guardrail_identifier: Optional[str] = None,
+        guardrail_version: Optional[str] = None,
+    ):
         self._client = client
         self._model_id = model_id
         self._prompt_arn = prompt_arn
+        self._guardrail_identifier = guardrail_identifier
+        self._guardrail_version = guardrail_version
 
     def converse(self, *, messages: list[dict[str, Any]], **kwargs) -> dict[str, Any]:
-        return self._client.converse(modelId=self._model_id, messages=messages, **kwargs)
+        # guardrailが設定されている場合は追加
+        if self._guardrail_identifier and self._guardrail_version:
+            kwargs.setdefault("guardrailConfig", {
+                "guardrailIdentifier": self._guardrail_identifier,
+                "guardrailVersion": self._guardrail_version,
+            })
+        response = self._client.converse(modelId=self._model_id, messages=messages, **kwargs)
+        
+        # guardrailがブロックした場合の処理
+        stop_reason = response.get("stopReason")
+        if stop_reason == "guardrail_intervened":
+            logger.warning("Guardrail intervened in the response")
+            # guardrailの詳細情報をログに記録
+            trace = response.get("trace", {})
+            guardrail_trace = trace.get("guardrail")
+            if guardrail_trace:
+                logger.info(f"Guardrail trace: {guardrail_trace}")
+        
+        return response
 
     def converse_json(self, *, messages: list[dict[str, Any]], **kwargs) -> dict[str, Any]:
         raw = self.converse(messages=messages, **kwargs)
+        
+        # guardrailがブロックした場合の処理
+        stop_reason = raw.get("stopReason")
+        if stop_reason == "guardrail_intervened":
+            # guardrailによってブロックされた場合は、エラーではなく特別なレスポンスを返す
+            return {
+                "error": "guardrail_blocked",
+                "message": "Content was blocked by guardrail policy",
+                "stopReason": stop_reason,
+            }
+        
         text = _extract_assistant_text(raw)
         return json.loads(_extract_json_object(text))
 
@@ -66,7 +104,22 @@ class BedrockClient:
         if messages:
             req["messages"] = messages
 
+        # guardrailが設定されている場合は追加
+        if self._guardrail_identifier and self._guardrail_version:
+            req["guardrailConfig"] = {
+                "guardrailIdentifier": self._guardrail_identifier,
+                "guardrailVersion": self._guardrail_version,
+            }
+
         raw = self._client.converse(**req)
+        
+        # guardrailがブロックした場合の処理
+        stop_reason = raw.get("stopReason")
+        if stop_reason == "guardrail_intervened":
+            logger.warning("Guardrail intervened in prompt response")
+            # guardrailによってブロックされた場合は空のJSONを返す
+            return '{"error": "guardrail_blocked", "message": "Content was blocked by guardrail policy"}'
+        
         return _extract_assistant_text(raw)
 
 
