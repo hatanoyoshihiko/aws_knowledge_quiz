@@ -193,7 +193,6 @@ Resources:
         - python3.14
       CompatibleArchitectures:
         - arm64
-    RetentionPolicy: Delete
 
   # Bedrockのプロンプトマネジメント定義
   QuizPrompt:
@@ -207,8 +206,8 @@ Resources:
           TemplateType: "CHAT"
           InferenceConfiguration:
             Text:
-              MaxTokens: 1200
-              Temperature: 0.05
+              MaxTokens: 3000
+              Temperature: 0.2
           TemplateConfiguration:
             Chat:
               InputVariables:
@@ -223,23 +222,34 @@ Resources:
                     AWS教育用クイズ作成者。SOURCE_CONTEXTのみを根拠に、日本語で1問生成。
                     
                     必須ルール:
-                    - JSONのみ出力（コードフェンス・説明文禁止）
+                    - 完全なJSONのみ出力（コードフェンス・説明文禁止、必ず最後の}まで出力）
                     - SOURCE_CONTEXTにない事実は断定しない
                     - rubric必須（Must/Nice/Wrong/ScoringPolicy）
                     - level: 100=基礎、200=設計、300=実装、400=専門家
                     - correct=100%、close=80%を満たすScoringPolicy
                     - 明確な回答を求める（YES/NO禁止）
+                    - 簡潔に書く（冗長な説明を避ける）
+                    - bodyは途中で切らず、必ず文を完結させる
+                    - 文面はジョークを効かせて、ユーモアな表現とする
+                    
+                    各ポイント構造（厳守）:
+                    - id: 文字列（p1, n1, w1など）
+                    - label: 文字列（配列やオブジェクト禁止）
+                    - keywords_any: 文字列の配列
+                    - notes: 文字列（配列やオブジェクト禁止）
               Messages:
                 - Role: "user"
                   Content:
                     - Text: |
                         category={{category}}, level={{level}}, style={{question_style}}
                         
-                        制約:
-                        - title≤60字, body≤300字, expectedAnswer≤300字, sourceSummary≤220字
-                        - mustHavePoints.label≤45字, notes≤90字, keywords_any各≤20字
-                        - mustHavePointsは4個
+                        制約（厳守）:
+                        - title≤80字, body≤300字, expectedAnswer≤400字, sourceSummary≤250字
+                        - label≤60字, notes≤150字, keywords_any各≤30字
+                        - mustHavePointsは4〜6個
                         - JSONのみ出力（```禁止）
+                        - 極力簡潔に（生成速度最優先）
+                        - bodyは必ず完結させる（途中で切らない）
                         
                         重複回避:
                         {{avoid_duplicate_hint}}
@@ -251,7 +261,7 @@ Resources:
                         {{source_context}}
                         
                         出力形式:
-                        {"title":"","body":"","category":"","level":0,"rubric":{"expectedAnswer":"","mustHavePoints":[{"id":"p1","label":"","keywords_any":[],"notes":""}],"niceToHavePoints":[],"commonWrongClaims":[],"scoringPolicy":{"correct_threshold":1.0,"close_threshold":0.8,"must_points_total":4,"close_if_must_points_met_at_least":3,"correct_if_must_points_met_at_least":4}},"sourceSummary":"","tags":[]}
+                        {"title":"","body":"","category":"","level":0,"rubric":{"expectedAnswer":"","mustHavePoints":[{"id":"p1","label":"","keywords_any":[""],"notes":""}],"niceToHavePoints":[{"id":"n1","label":"","keywords_any":[""],"notes":""}],"commonWrongClaims":[{"id":"w1","label":"","keywords_any":[""],"notes":""}],"scoringPolicy":{"correct_threshold":1.0,"close_threshold":0.8,"must_points_total":4,"close_if_must_points_met_at_least":3,"correct_if_must_points_met_at_least":4}},"sourceSummary":"","tags":[]}
 
   QuizPromptVersion:
     Type: AWS::Bedrock::PromptVersion

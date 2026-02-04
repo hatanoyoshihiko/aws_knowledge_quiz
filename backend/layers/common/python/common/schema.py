@@ -14,11 +14,11 @@ LIMITS = {
     "raw_json_max_judge": 16384,    # judge raw
     "title_max": 80,
     "body_min": 20,
-    "body_max": 600,
+    "body_max": 300,                # 400→300: さらに簡潔に
     "source_summary_min": 20,
-    "source_summary_max": 400,
+    "source_summary_max": 250,      # 300→250: さらに短く
     "expected_answer_min": 30,
-    "expected_answer_max": 800,
+    "expected_answer_max": 400,     # 500→400: さらに簡潔に
     "tags_min": 1,
     "tags_max": 10,
     "tag_max": 30,
@@ -27,11 +27,11 @@ LIMITS = {
     "nice_max": 4,
     "wrong_max": 4,
     "label_min": 5,
-    "label_max": 80,
+    "label_max": 60,                # 80→60: ラベルも短く
     "keywords_min": 1,
     "keywords_max": 12,
     "kw_max": 30,
-    "notes_max": 200,
+    "notes_max": 150,               # 200→150: 説明も短く
     "feedback_max": 400,
     "hint_max": 120,
 }
