@@ -32,7 +32,7 @@ LIMITS = {
     "keywords_max": 12,
     "kw_max": 30,
     "notes_max": 200,
-    "feedback_max": 200,
+    "feedback_max": 400,
     "hint_max": 120,
 }
 

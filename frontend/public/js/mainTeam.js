@@ -316,6 +316,12 @@ async function submitAnswerAndScore() {
         return;
     }
 
+    // state.questionId のチェックを追加
+    if (!state.questionId) {
+        toast("先にクイズを取得してください");
+        return;
+    }
+
     const teamName = _normalizeTeamName(el("teamName") ?. value);
     const teamId = await _teamIdFromName(teamName);
 

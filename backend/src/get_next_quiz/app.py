@@ -340,27 +340,25 @@ def _make_avoid_hint(h: dict) -> str:
     def lines(title: str, items: list[str], max_items: int) -> str:
         items = items[:max_items]
         if not items:
-            return f"{title}:\n- (none)\n"
-        return title + ":\n" + "\n".join([f"- {x}" for x in items]) + "\n"
+            return ""
+        return title + ": " + ", ".join(items) + "\n"
 
     s = ""
-    s += lines("RECENT_TITLES", h.get("recentTitles", []), 5)
-    s += "\n" + lines("RECENT_TAGS", h.get("recentTags", []), 6)
-    s += "\n" + lines("RECENT_MUST_POINTS", h.get("recentMustLabels", []), 8)
-    s += "\nNOTE:\n- 直近と同じ論点や言い回しを避け、別の観点で作問してください。\n"
+    s += lines("最近のタイトル", h.get("recentTitles", []), 3)
+    s += lines("最近のタグ", h.get("recentTags", []), 4)
+    s += lines("最近の論点", h.get("recentMustLabels", []), 5)
+    if s:
+        s += "→別の観点で作問\n"
     return s
 
 
 def _build_source_context(snippets: list[str]) -> str:
-    lines = [f"SOURCE_SNIPPETS (max {SOURCE_SNIPPETS_MAX}):"]
+    lines = [f"AWS資料（最大{SOURCE_SNIPPETS_MAX}件）:"]
     for i, t in enumerate(snippets[:SOURCE_SNIPPETS_MAX], start=1):
         t2 = t.strip()
-        if len(t2) > 650:
-            t2 = t2[:650] + "…"
+        if len(t2) > 500:
+            t2 = t2[:500] + "…"
         lines.append(f"[{i}] {t2}")
-    lines.append("")
-    lines.append("KEY_TERMS:")
-    lines.append("- (auto)")
     text = "\n".join(lines)
     return text[:SOURCE_CONTEXT_MAX_CHARS]
 
@@ -497,24 +495,33 @@ def _rescue_json_text(raw: str) -> tuple[str, str | None]:
 
     s = raw.strip()
 
-    # 1) Whole response is fenced ```json ... ```
+    # 1) Remove code fences (```json ... ``` or ``` ... ```)
+    if s.startswith("```"):
+        # Find the first newline after opening fence
+        first_newline = s.find("\n")
+        if first_newline != -1:
+            # Find closing fence
+            closing = s.rfind("```")
+            if closing > first_newline:
+                # Extract content between fences
+                content = s[first_newline + 1:closing].strip()
+                if content.startswith("{") or content.startswith("["):
+                    return content, "stripped_code_fence"
+
+    # 2) Whole response is fenced ```json ... ```
     m = _JSON_FENCE_RE.match(s)
     if m:
         return m.group(1).strip(), "stripped_code_fence_whole"
 
-    # 2) Response contains a fenced block somewhere; extract first fenced block
+    # 3) Response contains a fenced block somewhere; extract first fenced block
     if "```" in s:
-        # Try to find the first fenced block (json or not)
-        # e.g. "blah\n```json\n{...}\n```\nblah"
         blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", s, flags=re.IGNORECASE)
         if blocks:
             candidate = blocks[0].strip()
-            # If candidate looks like JSON, return it
             if candidate.startswith("{") or candidate.startswith("["):
                 return candidate, "extracted_code_fence_block"
 
-    # 3) As a last resort, extract outermost {...} or [...] region if it looks plausible
-    # (Keep conservative to avoid accidental truncation)
+    # 4) Extract outermost {...} or [...] region
     first_obj = s.find("{")
     last_obj = s.rfind("}")
     if first_obj != -1 and last_obj != -1 and first_obj < last_obj:

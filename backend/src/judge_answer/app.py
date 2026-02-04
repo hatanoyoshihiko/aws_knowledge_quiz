@@ -21,7 +21,7 @@ SYSTEM_PROMPT = """あなたはAWSクイズの採点者です。ルール:
 - 出力は必ずJSONのみ（前後に文章を付けない）。
 - result は correct / close / incorrect のいずれか。
 - close は必須要点の約8割。RUBRIC.scoringPolicy に厳密に従う。
-- feedback は最大2文で簡潔に。
+- feedback は最大400字で簡潔に。
 - 同義表現は加点してよい。不要に厳密な言い回しにはしない。
 """
 

@@ -43,7 +43,7 @@ Globals:
   Function:
     Runtime: python3.14
     Timeout: 60
-    MemorySize: 2048
+    MemorySize: 512
     Tracing: Active
     Architectures:
       - arm64
@@ -55,7 +55,7 @@ Globals:
         BEDROCK_GUARDRAIL_VERSION: !Ref BedrockGuardrailVersion
         QUIZ_TABLE_NAME: !Ref QuizHistoryTable
         MAX_ATTEMPTS: "1"
-        MAX_MCP_REFRESH: "2"
+        MAX_MCP_REFRESH: "0"
         DUPLICATE_HINT_WINDOW: "15"
         SOURCE_CONTEXT_MAX_CHARS: "1500"
         SOURCE_SNIPPETS_MAX: "3"
@@ -207,8 +207,8 @@ Resources:
           TemplateType: "CHAT"
           InferenceConfiguration:
             Text:
-              MaxTokens: 2400
-              Temperature: 0.15
+              MaxTokens: 1200
+              Temperature: 0.05
           TemplateConfiguration:
             Chat:
               InputVariables:
@@ -229,34 +229,29 @@ Resources:
                     - level: 100=基礎、200=設計、300=実装、400=専門家
                     - correct=100%、close=80%を満たすScoringPolicy
                     - 明確な回答を求める（YES/NO禁止）
-                    - 多様な観点・表現で出題（同じパターンを避ける）
-                    - JSON構造を完全に閉じる（すべての}と]を忘れずに）
-                    - クイズはトンチを利かしたり、ユーモアに富んだ文章とする。
               Messages:
                 - Role: "user"
                   Content:
                     - Text: |
                         category={{category}}, level={{level}}, style={{question_style}}
                         
-                        制約（厳守）:
-                        - title≤55字, body≤240字, expectedAnswer≤240字, sourceSummary≤160字
-                        - mustHavePoints.label≤35字, notes≤70字
-                        - keywords_any: 各要素は必ず10字以内（重要！）
-                        - mustHavePointsは4個、niceToHavePointsは0-1個、commonWrongClaimsは0-1個
-                        - JSONのみ出力（```禁止）、必ず完全なJSONを出力
-                        - 簡潔に書く（冗長な説明を避ける）
+                        制約:
+                        - title≤60字, body≤300字, expectedAnswer≤300字, sourceSummary≤220字
+                        - mustHavePoints.label≤45字, notes≤90字, keywords_any各≤20字
+                        - mustHavePointsは4個
+                        - JSONのみ出力（```禁止）
                         
-                        重複回避（必ず異なる観点で）:
+                        重複回避:
                         {{avoid_duplicate_hint}}
                         
-                        出題方針（この型に沿う）:
+                        出題方針:
                         {{style_guidance}}
                         
                         根拠:
                         {{source_context}}
                         
-                        出力形式（必ず完全なJSONを出力）:
-                        {"title":"","body":"","category":"","level":0,"rubric":{"expectedAnswer":"","mustHavePoints":[{"id":"p1","label":"","keywords_any":[""],"notes":""}],"niceToHavePoints":[],"commonWrongClaims":[],"scoringPolicy":{"correct_threshold":1.0,"close_threshold":0.8,"must_points_total":4,"close_if_must_points_met_at_least":3,"correct_if_must_points_met_at_least":4}},"sourceSummary":"","tags":[]}
+                        出力形式:
+                        {"title":"","body":"","category":"","level":0,"rubric":{"expectedAnswer":"","mustHavePoints":[{"id":"p1","label":"","keywords_any":[],"notes":""}],"niceToHavePoints":[],"commonWrongClaims":[],"scoringPolicy":{"correct_threshold":1.0,"close_threshold":0.8,"must_points_total":4,"close_if_must_points_met_at_least":3,"correct_if_must_points_met_at_least":4}},"sourceSummary":"","tags":[]}
 
   QuizPromptVersion:
     Type: AWS::Bedrock::PromptVersion
