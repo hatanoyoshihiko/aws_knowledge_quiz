@@ -185,8 +185,8 @@ def _validate_keywords_any(arr: Any, *, path: str) -> List[str]:
         x2 = _sanitize_text(_strip(x))
         if not x2:
             raise SchemaError(f"{path}[{i}] empty string not allowed")
-        if len(x2) > 20:
-            raise SchemaError(f"{path}[{i}] too long (max 20)")
+        if len(x2) > LIMITS["kw_max"]:
+            raise SchemaError(f"{path}[{i}] too long (max {LIMITS['kw_max']})")
         out.append(x2)
     return out
 
