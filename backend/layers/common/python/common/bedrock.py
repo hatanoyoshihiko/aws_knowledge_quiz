@@ -1,9 +1,16 @@
 from __future__ import annotations
 import boto3
+from botocore.config import Config
 
 class BedrockClient:
     def __init__(self):
-        self._rt = boto3.client("bedrock-runtime")
+        # Bedrockクライアントにタイムアウト設定を追加（接続5秒、読み取り25秒）
+        bedrock_config = Config(
+            connect_timeout=5,
+            read_timeout=25,
+            retries={'max_attempts': 1}
+        )
+        self._rt = boto3.client("bedrock-runtime", config=bedrock_config)
         self._agent = boto3.client("bedrock-agent")
         self._cached_prompt_version_arn: str | None = None
 
