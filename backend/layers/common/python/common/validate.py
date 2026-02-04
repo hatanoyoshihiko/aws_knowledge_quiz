@@ -369,7 +369,7 @@ def validate_judgment(obj: Dict[str, Any], rubric: Dict[str, Any]) -> Dict[str, 
     if set(must_met) & set(missing):
         raise SemanticError("mustPointsMet and missingMustPoints must be disjoint")
 
-    feedback = _require_str(obj, "feedback", min_len=1, max_len=280)
+    feedback = _require_str(obj, "feedback", min_len=1, max_len=400)
     next_hint = obj.get("nextHint", "")
     if next_hint is None:
         next_hint = ""
