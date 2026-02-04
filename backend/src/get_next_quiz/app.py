@@ -633,7 +633,8 @@ def lambda_handler(event, context):
             broke_for_time = False
             for attempt in range(1, MAX_ATTEMPTS + 1):
                 remaining_ms = context.get_remaining_time_in_millis()
-                if remaining_ms < 12000:
+                # Bedrockのタイムアウト(25秒) + バッファ(10秒) = 35秒必要
+                if remaining_ms < 35000:
                     print(
                         "[WARN] Not enough time remaining; stop generation loop",
                         {"requestId": aws_request_id, "remainingMs": remaining_ms, "refresh": refresh, "attempt": attempt},

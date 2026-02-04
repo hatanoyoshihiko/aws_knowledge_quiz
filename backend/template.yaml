@@ -57,8 +57,8 @@ Globals:
         MAX_ATTEMPTS: "1"
         MAX_MCP_REFRESH: "0"
         DUPLICATE_HINT_WINDOW: "20"
-        SOURCE_CONTEXT_MAX_CHARS: "2200"
-        SOURCE_SNIPPETS_MAX: "6"
+        SOURCE_CONTEXT_MAX_CHARS: "2000"
+        SOURCE_SNIPPETS_MAX: "5"
         MCP_ENDPOINT: !Ref McpEndpoint
         MCP_API_KEY: "" # 基本的に不要
         HOST_KEY: !Ref HostKey
@@ -167,6 +167,22 @@ Resources:
         - AttributeName: teamId
           KeyType: HASH
 
+  AnswerHistoryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-AnswerHistory"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: teamId
+          AttributeType: S
+        - AttributeName: questionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: teamId
+          KeyType: HASH
+        - AttributeName: questionId
+          KeyType: RANGE
+
   CommonLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
@@ -191,8 +207,8 @@ Resources:
           TemplateType: "CHAT"
           InferenceConfiguration:
             Text:
-              MaxTokens: 2200
-              Temperature: 0.4
+              MaxTokens: 1800
+              Temperature: 0.1
           TemplateConfiguration:
             Chat:
               InputVariables:
@@ -295,7 +311,7 @@ Resources:
       Handler: app.lambda_handler
       CodeUri: src/get_next_quiz/
       Timeout: 60
-      MemorySize: 1024
+      MemorySize: 2048
       Layers:
         - !Ref CommonLayer
       Policies:
@@ -368,9 +384,12 @@ Resources:
       Environment:
         Variables:
           SCORES_TABLE_NAME: !Ref ScoresTable
+          ANSWER_HISTORY_TABLE_NAME: !Ref AnswerHistoryTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ScoresTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AnswerHistoryTable
       Events:
         SubmitScore:
           Type: HttpApi
