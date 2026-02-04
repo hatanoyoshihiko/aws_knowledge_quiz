@@ -56,9 +56,9 @@ Globals:
         QUIZ_TABLE_NAME: !Ref QuizHistoryTable
         MAX_ATTEMPTS: "1"
         MAX_MCP_REFRESH: "0"
-        DUPLICATE_HINT_WINDOW: "20"
-        SOURCE_CONTEXT_MAX_CHARS: "2000"
-        SOURCE_SNIPPETS_MAX: "5"
+        DUPLICATE_HINT_WINDOW: "15"
+        SOURCE_CONTEXT_MAX_CHARS: "1500"
+        SOURCE_SNIPPETS_MAX: "3"
         MCP_ENDPOINT: !Ref McpEndpoint
         MCP_API_KEY: "" # 基本的に不要
         HOST_KEY: !Ref HostKey
@@ -207,8 +207,11 @@ Resources:
           TemplateType: "CHAT"
           InferenceConfiguration:
             Text:
-              MaxTokens: 1800
-              Temperature: 0.1
+              MaxTokens: 1200
+              Temperature: 0.05
+              StopSequences:
+                - "}\n}"
+                - "\n\n\n"
           TemplateConfiguration:
             Chat:
               InputVariables:
@@ -220,81 +223,39 @@ Resources:
                 - Name: "source_context"
               System:
                 - Text: |
-                    あなたはAWSソリューションアーキテクト兼、社内教育用のAWSクイズ作成者です。
-                    ルール:
-                    - 入力で与えられる SOURCE_CONTEXT のみを根拠にすること。
-                    - SOURCE_CONTEXTにない事実を断定しない。不明なら出題しない。
-                    - 日本語で、社内学習に適した明確な問題にする。
-                    - 出力は必ずJSONのみ（前後に文章やコードフェンスを付けない）。
-                    - 1問だけ生成する。
-                    - rubric（Must/Nice/Wrong/ScoringPolicy）を必ず含める。
-                    - level は AWSセッションレベル（100/200/300/400）を数値で使用する。
-                      - 100: 基礎概念、200: 設計/推奨、300: 実装/運用、400: 専門家/トレードオフ
-                    - ScoringPolicyは correct=100%, close=80% を満たすように定義する。
+                    AWS教育用クイズ作成者。SOURCE_CONTEXTのみを根拠に、日本語で1問生成。
+                    
+                    必須ルール:
+                    - JSONのみ出力（コードフェンス・説明文禁止）
+                    - SOURCE_CONTEXTにない事実は断定しない
+                    - rubric必須（Must/Nice/Wrong/ScoringPolicy）
+                    - level: 100=基礎、200=設計、300=実装、400=専門家
+                    - correct=100%、close=80%を満たすScoringPolicy
+                    - 明確な回答を求める（YES/NO禁止）
                     - クイズはトンチを利かしたり、ユーモアに富んだ文章とする。
-                    - 設問に対しての回答を明確に求め、YESやNOの表現だけを回答として求めないこと。
-                    - 現在時刻で廃止が決定されている仕組（SSE-C等）は出題しないこと。
               Messages:
                 - Role: "user"
                   Content:
                     - Text: |
-                        次の制約でAWSクイズを1問生成してください。
-
-                        [CONSTRAINTS]
-                        - 文字数制約（必ず守る）:
-                          - title: 60文字以内
-                          - body: 300文字以内
-                          - sourceSummary: 220文字以内
-                          - rubric.expectedAnswer: 300文字以内
-                          - mustHavePoints.label: 45文字以内、notes: 90文字以内
-                          - keywords_any: 各要素 20文字以内、各ポイント最大 6 個
-                        - JSONはコードフェンス禁止（```json など禁止）
-                        - JSON以外の文章を一切出力しない
-                        - category: {{category}}
-                        - level: {{level}}
-                        - language: ja
-                        - avoid_duplicate_hint:
+                        category={{category}}, level={{level}}, style={{question_style}}
+                        
+                        制約:
+                        - title≤60字, body≤300字, expectedAnswer≤300字, sourceSummary≤220字
+                        - mustHavePoints.label≤45字, notes≤90字, keywords_any各≤20字
+                        - mustHavePointsは4個
+                        - JSONのみ出力（```禁止）
+                        
+                        重複回避:
                         {{avoid_duplicate_hint}}
-
-                        [QUESTION_STYLE]
-                        次の「型」に沿って出題してください（同じ論点の焼き直しを避ける）:
-                        - style: {{question_style}}
-                        - style_guidance:
+                        
+                        出題方針:
                         {{style_guidance}}
-
-                        [SOURCE_CONTEXT]
+                        
+                        根拠:
                         {{source_context}}
-
-                        [OUTPUT_JSON_SCHEMA]
-                        {
-                          "title": "string",
-                          "body": "string",
-                          "category": "string",
-                          "level": 0,
-                          "rubric": {
-                            "expectedAnswer": "string",
-                            "mustHavePoints": [
-                              {"id":"p1","label":"string","keywords_any":["string"],"notes":"string"}
-                            ],
-                            "niceToHavePoints": [
-                              {"id":"n1","label":"string","keywords_any":["string"],"notes":"string"}
-                            ],
-                            "commonWrongClaims": [
-                              {"id":"w1","label":"string","keywords_any":["string"],"notes":"string"}
-                            ],
-                            "scoringPolicy": {
-                              "correct_threshold": 1.0,
-                              "close_threshold": 0.8,
-                              "must_points_total": 0,
-                              "close_if_must_points_met_at_least": 0,
-                              "correct_if_must_points_met_at_least": 0
-                            }
-                          },
-                          "sourceSummary": "string",
-                          "tags": ["string"]
-                        }
-
-                        mustHavePointsは4〜6個にしてください。
+                        
+                        出力形式:
+                        {"title":"","body":"","category":"","level":0,"rubric":{"expectedAnswer":"","mustHavePoints":[{"id":"p1","label":"","keywords_any":[],"notes":""}],"niceToHavePoints":[],"commonWrongClaims":[],"scoringPolicy":{"correct_threshold":1.0,"close_threshold":0.8,"must_points_total":4,"close_if_must_points_met_at_least":3,"correct_if_must_points_met_at_least":4}},"sourceSummary":"","tags":[]}
 
   QuizPromptVersion:
     Type: AWS::Bedrock::PromptVersion
