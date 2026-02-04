@@ -13,6 +13,8 @@ from common.config import (
     BEDROCK_MODEL_ID,
     BEDROCK_PROMPT_ARN,
     BEDROCK_PROMPT_NAME,
+    BEDROCK_GUARDRAIL_IDENTIFIER,
+    BEDROCK_GUARDRAIL_VERSION,
     HOST_KEY,
     DUPLICATE_HINT_WINDOW,
     MAX_ATTEMPTS,
@@ -587,7 +589,12 @@ def lambda_handler(event, context):
         repo = QuizRepo(QUIZ_TABLE_NAME)
 
         brt = boto3.client("bedrock-runtime")
-        bedrock = BedrockClient(brt, BEDROCK_MODEL_ID)
+        bedrock = BedrockClient(
+            brt,
+            BEDROCK_MODEL_ID,
+            guardrail_identifier=BEDROCK_GUARDRAIL_IDENTIFIER if BEDROCK_GUARDRAIL_IDENTIFIER else None,
+            guardrail_version=BEDROCK_GUARDRAIL_VERSION if BEDROCK_GUARDRAIL_IDENTIFIER else None,
+        )
 
         mcp = McpClient(MCP_ENDPOINT, MCP_API_KEY)
 
@@ -653,6 +660,20 @@ def lambda_handler(event, context):
                     "[INFO] Bedrock returned",
                     {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt, "rawLen": raw_len},
                 )
+
+                # guardrailブロックのチェック
+                if isinstance(raw, str):
+                    try:
+                        raw_obj = json.loads(raw)
+                        if isinstance(raw_obj, dict) and raw_obj.get("error") == "guardrail_blocked":
+                            print(
+                                "[WARN] Guardrail blocked content generation",
+                                {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt},
+                            )
+                            # guardrailブロックの場合は次のrefreshへ
+                            break
+                    except json.JSONDecodeError:
+                        pass  # JSON以外の文字列なので通常処理へ
 
                 try:
                     cleaned, reason = _rescue_json_text(raw if isinstance(raw, str) else "")
