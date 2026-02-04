@@ -209,9 +209,6 @@ Resources:
             Text:
               MaxTokens: 1200
               Temperature: 0.05
-              StopSequences:
-                - "}\n}"
-                - "\n\n\n"
           TemplateConfiguration:
             Chat:
               InputVariables:
@@ -232,7 +229,6 @@ Resources:
                     - level: 100=基礎、200=設計、300=実装、400=専門家
                     - correct=100%、close=80%を満たすScoringPolicy
                     - 明確な回答を求める（YES/NO禁止）
-                    - クイズはトンチを利かしたり、ユーモアに富んだ文章とする。
               Messages:
                 - Role: "user"
                   Content:
