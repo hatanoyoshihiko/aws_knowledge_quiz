@@ -12,6 +12,16 @@ Parameters:
     Type: String
     Default: jp.anthropic.claude-sonnet-4-5-20250929-v1:0
 
+  BedrockGuardrailIdentifier:
+    Type: String
+    Default: ""
+    Description: "Bedrock Guardrail ID or ARN (optional)"
+
+  BedrockGuardrailVersion:
+    Type: String
+    Default: "DRAFT"
+    Description: "Bedrock Guardrail Version (DRAFT for latest)"
+
   FrontendOrigin:
     Type: String
     Default: https://CHANGE_ME_FRONTEND_DOMAIN
@@ -41,6 +51,8 @@ Globals:
       Variables:
         STAGE_NAME: !Ref StageName
         BEDROCK_MODEL_ID: !Ref BedrockModelId
+        BEDROCK_GUARDRAIL_IDENTIFIER: !Ref BedrockGuardrailIdentifier
+        BEDROCK_GUARDRAIL_VERSION: !Ref BedrockGuardrailVersion
         QUIZ_TABLE_NAME: !Ref QuizHistoryTable
         MAX_ATTEMPTS: "1"
         MAX_MCP_REFRESH: "0"
@@ -295,6 +307,7 @@ Resources:
                 - bedrock:InvokeModel
                 - bedrock:InvokeModelWithResponseStream
                 - bedrock:RenderPrompt
+                - bedrock:ApplyGuardrail
               Resource: "*"
       Events:
         GetNextQuiz:
@@ -336,6 +349,7 @@ Resources:
             - Effect: Allow
               Action:
                 - bedrock:InvokeModel
+                - bedrock:ApplyGuardrail
               Resource: "*"
       Events:
         JudgeAnswer:
