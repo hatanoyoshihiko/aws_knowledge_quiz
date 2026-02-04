@@ -7,7 +7,7 @@ from decimal import Decimal
 import boto3
 
 from common.bedrock import BedrockClient
-from common.config import BEDROCK_MODEL_ID, QUIZ_TABLE_NAME
+from common.config import BEDROCK_MODEL_ID, BEDROCK_GUARDRAIL_IDENTIFIER, BEDROCK_GUARDRAIL_VERSION, QUIZ_TABLE_NAME
 from common.ddb import QuizRepo
 from common.errors import AppError, ParseError, SchemaError, SemanticError
 from common.schema import LIMITS
@@ -167,6 +167,14 @@ def _coerce_bedrock_output_to_obj(raw: object) -> dict:
     - dict に {"json": "..."} / {"text": "..."} のように包まれているケースも救う
     """
     if isinstance(raw, dict):
+        # guardrailブロックの場合
+        if raw.get("error") == "guardrail_blocked":
+            raise AppError(
+                "GUARDRAIL_BLOCKED",
+                "回答内容がガードレールポリシーによってブロックされました。適切な内容で再度お試しください。",
+                400,
+            )
+        
         # すでに採点結果が入っているならそのまま返す
         if "result" in raw and "score" in raw:
             return raw
@@ -224,7 +232,12 @@ def lambda_handler(event, context):
         nice_ids = _extract_ids(rubric, "niceToHavePoints")
 
         brt = boto3.client("bedrock-runtime")
-        bedrock = BedrockClient(brt, BEDROCK_MODEL_ID)
+        bedrock = BedrockClient(
+            brt,
+            BEDROCK_MODEL_ID,
+            guardrail_identifier=BEDROCK_GUARDRAIL_IDENTIFIER if BEDROCK_GUARDRAIL_IDENTIFIER else None,
+            guardrail_version=BEDROCK_GUARDRAIL_VERSION if BEDROCK_GUARDRAIL_IDENTIFIER else None,
+        )
 
         user_prompt = USER_PROMPT_TEMPLATE.format(
             question_body=question_body,
