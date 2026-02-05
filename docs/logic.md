@@ -256,10 +256,225 @@ Bedrock は各 P について「満たしているか（met）」を判定し、
 
 ## 出題されたクイズがチーム画面で共通に出力される仕組み
 
-- host側で生成したクイズをDynamoDBに保存し、今の出題(current)として参照できる状態にしています
-- team UIはGET /quiz/currentでDynamoDBのGSI_Recentから最新の1件を取得し、これをcurrentのクイズとして扱うだけです
-  - `get_current_quiz/app.py` の `resp = repo.table.query` が具体的な判定処理です
-- 15秒ごとにポーリングして最新状態を取得
+### 概要
+
+Host側で生成したクイズをDynamoDBに保存し、Team UIが定期的にポーリングして最新のクイズを取得します。
+
+### DynamoDB設計（GSI_Recent）
+
+**テーブル構造**:
+```
+QuizHistoryTable
+├── Primary Key: QuestionHash (String)
+└── GSI_Recent (Global Secondary Index)
+    ├── Partition Key: GSI1PK = "RECENT" (固定値)
+    └── Sort Key: GSI1SK = CreatedAt (ISO 8601形式)
+```
+
+**クイズ保存時の属性**:
+```python
+item = {
+    "QuestionHash": "quiz:abc123...",  # Primary Key（ハッシュ値）
+    "GSI1PK": "RECENT",                # GSI Partition Key（全クイズ共通）
+    "GSI1SK": "2026-02-06T10:30:45+09:00",  # GSI Sort Key（作成日時）
+    "Version": 1,
+    "Category": "security",
+    "Level": 200,
+    "Question": {
+        "Title": "IAMポリシーの評価順序",
+        "Body": "..."
+    },
+    "Rubric": {...},
+    "CreatedAt": "2026-02-06T10:30:45+09:00",
+    "Tags": ["iam", "policy"]
+}
+```
+
+**GSI_Recentの利点**:
+- **O(1)で最新クイズを取得**: Scanではなく効率的なQuery
+- **時系列順**: CreatedAtでソートされているため、最新1件を即座に取得
+- **スケーラブル**: クイズ数が増えてもパフォーマンス低下なし
+
+### バックエンド実装（GetCurrentQuizFunction）
+
+**処理フロー**:
+```python
+# get_current_quiz/app.py
+resp = repo.table.query(
+    IndexName="GSI_Recent",
+    KeyConditionExpression=Key("GSI1PK").eq("RECENT"),  # 全クイズを対象
+    ScanIndexForward=False,  # CreatedAt（GSI1SK）の降順でソート
+    Limit=1,                 # 先頭1件（最新）のみ取得
+)
+
+items = resp.get("Items") or []
+if not items:
+    return {"status": "empty", "message": "まだクイズが出題されていません"}
+
+item = items[0]  # 最新のクイズ
+return {
+    "question": {
+        "questionId": item["QuestionHash"],
+        "title": item["Question"]["Title"],
+        "body": item["Question"]["Body"],
+        "category": item["Category"],
+        "level": item["Level"],
+        "createdAt": item["CreatedAt"]
+    }
+}
+```
+
+**ScanIndexForwardの役割**:
+- DynamoDBのGSIは、Sort Key（GSI1SK = CreatedAt）で自動的にソートされる
+- デフォルトは昇順（`ScanIndexForward=True`）→ 古いクイズが先頭
+- `ScanIndexForward=False`で降順に → 新しいクイズが先頭
+- `Limit=1`で先頭1件を取得するため、降順にしないと古いクイズを取得してしまう
+
+**具体例**:
+```
+DynamoDB内のデータ（GSI1SK = CreatedAtでソート済み）:
+- 2026-02-06T10:00:00+09:00  ← 古いクイズ
+- 2026-02-06T10:15:00+09:00
+- 2026-02-06T10:30:00+09:00  ← 最新のクイズ
+
+ScanIndexForward=True（昇順）:
+  → 10:00:00のクイズが返る ❌
+
+ScanIndexForward=False（降順）:
+  → 10:30:00のクイズが返る ✅
+```
+
+**レスポンス例**:
+```json
+{
+  "question": {
+    "questionId": "quiz:abc123...",
+    "title": "IAMポリシーの評価順序",
+    "body": "以下のシナリオで...",
+    "category": "security",
+    "level": 200,
+    "createdAt": "2026-02-06T10:30:45+09:00"
+  }
+}
+```
+
+### フロントエンド実装（ポーリング）
+
+**Host UI / Team UI共通**:
+```javascript
+// mainTeam.js / mainHost.js
+const POLL_MS = 15000; // 15秒
+
+async function _poll() {
+    const fn = _getCurrentQuizFn();
+    if (!fn) return;
+    
+    // 復習モード中はポーリングしない
+    if ((state.quizMode || "live") === "review") return;
+    
+    try {
+        await fn({silent: true}); // 静かに同期
+    } catch (_) {
+        // ポーリングでは失敗しても無視
+    }
+}
+
+// 初回同期 + 定期ポーリング開始
+if (currentFn) {
+    await currentFn({silent: true, force: true});
+    setInterval(_poll, POLL_MS);
+}
+```
+
+**重複チェック（新しいクイズの検出）**:
+```javascript
+// quizApi.host.js - クイズ生成後のポーリング
+const previousQuizId = state.questionId || null;
+
+for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
+    const currentData = await fetchCurrentQuiz();
+    
+    if (currentData?.question) {
+        const q = currentData.question;
+        // 新しいクイズが生成されたかチェック（IDが変わっている）
+        if (q.questionId && q.questionId !== previousQuizId) {
+            console.log(`[quiz] new quiz detected: ${q.questionId}`);
+            setQuestionView(q);
+            toast("クイズを生成しました");
+            return q;
+        }
+    }
+}
+```
+
+### 同期フロー全体
+
+```
+1. Host UI: 「次のクイズ」ボタン押下
+   ↓
+2. POST /quiz/generate → StartQuizGenerationFunction
+   ↓ 即座に202返却
+3. Host UI: ポーリング開始（5秒ごと、最大12回）
+   ↓
+4. バックグラウンド: GetNextQuizFunction実行
+   - MCP検索（3〜5秒）
+   - Bedrock生成（15〜25秒）
+   - DynamoDB保存（GSI1PK="RECENT", GSI1SK=現在時刻）
+   ↓
+5. Host UI: GET /quiz/current でポーリング
+   - questionIdが変わっていれば新しいクイズを表示
+   ↓
+6. Team UI: 15秒ごとのポーリングで自動同期
+   - GET /quiz/current → GSI_Recentから最新1件取得
+   - questionIdが変わっていれば画面更新
+```
+
+### タイミング図
+
+```
+時刻    Host UI              Backend                Team UI
+0秒     [次のクイズ]押下
+        ↓
+0.5秒   ← 202 Accepted
+        ポーリング開始
+        ↓                    クイズ生成開始
+5秒     GET /quiz/current →  (まだ古いクイズ)
+        ↓
+10秒    GET /quiz/current →  (まだ古いクイズ)
+        ↓
+15秒    GET /quiz/current →  (まだ古いクイズ)    GET /quiz/current
+        ↓                                        ↓
+20秒    GET /quiz/current →  (まだ古いクイズ)    (古いクイズ)
+        ↓
+25秒    GET /quiz/current →  (まだ古いクイズ)
+        ↓
+30秒    GET /quiz/current →  [新しいクイズ保存]
+        ↓                    ↓
+        ← 新しいクイズ        GSI1PK="RECENT"
+        画面更新完了          GSI1SK=30秒時点
+                             ↓
+45秒                                            GET /quiz/current
+                                                ↓
+                                                ← 新しいクイズ
+                                                画面更新完了
+```
+
+### ポーリング方式の利点
+
+1. **シンプル**: WebSocketやServer-Sent Eventsが不要
+2. **スケーラブル**: クライアント数が増えてもバックエンドの負荷は一定
+3. **リアルタイム性**: 最大15秒の遅延で全クライアントが同期
+4. **復習モード対応**: ポーリングを停止して過去問を表示可能
+5. **エラー耐性**: 一時的な通信エラーでも次のポーリングで回復
+
+### パフォーマンス最適化
+
+- **DynamoDB**: GSI_Recentで効率的なクエリ（Scanではない）
+- **Lambda**: GetCurrentQuizFunctionは軽量（10秒タイムアウト、512MB）
+- **フロントエンド**: silent: trueでエラートーストを抑制
+- **復習モード**: ポーリングを停止して不要なAPI呼び出しを削減
 
 ## 最適化の詳細
 
