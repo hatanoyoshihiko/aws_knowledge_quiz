@@ -57,9 +57,12 @@ export async function nextQuiz() {
     if (category) 
         qs.set("category", category);
     
+
+
     if (level) 
         qs.set("level", level);
     
+
 
     // 新しい非同期エンドポイントを使用
     const url = `${
@@ -109,6 +112,10 @@ export async function nextQuiz() {
             showGlobalMsg("クイズを生成中です。しばらくお待ちください...");
             toast("生成中...");
 
+            // 現在のクイズIDを記録（新しいクイズかどうか判定するため）
+            const previousQuizId = state.questionId || null;
+            console.log(`[quiz] previous questionId: ${previousQuizId}`);
+
             // Step 2: ポーリングで最新クイズを取得
             const maxAttempts = 12; // 最大60秒（5秒×12回）
             for (let i = 0; i < maxAttempts; i++) {
@@ -144,12 +151,20 @@ export async function nextQuiz() {
 
                     if (currentResp.ok && currentData ?. question) {
                         const q = currentData.question;
-                        if (q.questionId && q.title && q.body) { // 新しいクイズが生成された
+                        // 新しいクイズが生成されたかチェック（IDが変わっている）
+                        if (q.questionId && q.title && q.body && q.questionId !== previousQuizId) {
+                            console.log(`[quiz] new quiz detected: ${
+                                q.questionId
+                            }`);
                             clearGlobalMsg();
                             setConn(true, "接続OK");
                             setQuestionView(q);
                             toast("クイズを生成しました");
                             return q;
+                        } else if (q.questionId === previousQuizId) {
+                            console.log(`[quiz] still old quiz (${
+                                q.questionId
+                            }), continuing...`);
                         }
                     }
                 } catch (pollError) {
