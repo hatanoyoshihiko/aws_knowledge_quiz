@@ -32,15 +32,21 @@ from common.normalize import question_hash
 from common.schema import ALLOWED_CATEGORIES, ALLOWED_LEVELS, LIMITS
 from common.validate import parse_json_strict, validate_generation
 
+# Load JSON schema for structured output
+_QUIZ_SCHEMA = None
+
+def _load_quiz_schema() -> dict:
+    global _QUIZ_SCHEMA
+    if _QUIZ_SCHEMA is None:
+        schema_path = os.path.join(os.path.dirname(__file__), "quiz_schema.json")
+        with open(schema_path, "r", encoding="utf-8") as f:
+            _QUIZ_SCHEMA = json.load(f)
+    return _QUIZ_SCHEMA
+
 # -----------------------------
 # MCP query components (fast + deterministic diversification)
 # -----------------------------
 
-# NOTE:
-# - 既存の「固定クエリ配列」を増やすとメンテ負荷が上がりやすいので、
-#   “部品の組み合わせ”でクエリを生成する方式に置換。
-# - 生成は決定的（category/level/idx からハッシュで選ぶ）なので、DDBカーソルと相性が良い。
-# - MCP search 回数は増やさない（refresh ループはそのまま）。
 QUERY_COMPONENTS: dict[str, dict[str, list[str]]] = {
     "security": {
         "services": [
@@ -58,19 +64,19 @@ QUERY_COMPONENTS: dict[str, dict[str, list[str]]] = {
         "topics": [
             "最小権限",
             "評価ロジック",
-            "境界(permissions boundary)",
+            "境界",
             "条件キー",
-            "監査・証跡",
-            "誤設定パターン",
+            "監査",
+            "誤設定",
             "マルチアカウント",
-            "暗号化と鍵管理",
+            "暗号化",
             "アクセス制御",
         ],
         "angles": [
             "ベストプラクティス",
-            "よくある誤解",
-            "設計の注意点",
-            "運用上の落とし穴",
+            "誤解",
+            "設計",
+            "運用",
             "トレードオフ",
         ],
     },
@@ -91,19 +97,19 @@ QUERY_COMPONENTS: dict[str, dict[str, list[str]]] = {
         ],
         "topics": [
             "ルーティング",
-            "名前解決(DNS)",
-            "到達性(Reachability)",
-            "セキュリティグループとNACL",
+            "DNS",
+            "到達性",
+            "セキュリティグループ",
             "ハイブリッド接続",
-            "L4/L7の使い分け",
-            "可用性設計",
-            "コストと性能",
+            "L4/L7",
+            "可用性",
+            "コスト",
         ],
         "angles": [
             "基礎",
             "使い分け",
-            "設計の観点",
-            "障害・切り分け",
+            "設計",
+            "障害",
             "アンチパターン",
         ],
     },
@@ -119,13 +125,13 @@ QUERY_COMPONENTS: dict[str, dict[str, list[str]]] = {
             "S3 Object Lock",
         ],
         "topics": [
-            "耐久性と可用性",
+            "耐久性",
             "ライフサイクル",
             "暗号化",
-            "バックアップ/復元",
-            "性能(スループット/IOPS)",
+            "バックアップ",
+            "性能",
             "コスト最適化",
-            "整合性とバージョニング",
+            "整合性",
             "アクセス制御",
         ],
         "angles": [
@@ -150,21 +156,21 @@ QUERY_COMPONENTS: dict[str, dict[str, list[str]]] = {
             "Fargate",
         ],
         "topics": [
-            "非同期/同期",
-            "再試行と冪等性",
-            "同時実行とスロットリング",
-            "DLQ/宛先",
+            "非同期",
+            "再試行",
+            "同時実行",
+            "DLQ",
             "オーケストレーション",
-            "イベント駆動設計",
-            "権限/IAM",
-            "監視と運用",
-            "データモデリング(GSI/LSI)",
+            "イベント駆動",
+            "権限",
+            "監視",
+            "データモデリング",
         ],
         "angles": [
             "ベストプラクティス",
             "トラブルシュート",
             "設計パターン",
-            "制限・クォータ",
+            "制限",
             "アンチパターン",
         ],
     },
@@ -181,64 +187,56 @@ QUERY_COMPONENTS: dict[str, dict[str, list[str]]] = {
         "topics": [
             "柱の要点",
             "設計原則",
-            "代表的なベストプラクティス",
-            "よくある落とし穴",
+            "ベストプラクティス",
+            "落とし穴",
             "トレードオフ",
-            "メトリクス/可観測性",
+            "可観測性",
         ],
         "angles": [
-            "要点整理",
+            "要点",
             "具体例",
-            "誤解の修正",
-            "改善アクション",
-            "レビュー観点",
+            "誤解",
+            "改善",
+            "レビュー",
         ],
     },
 }
 
 QUESTION_STYLES: list[tuple[str, str]] = [
-    ("使い分け", "A/B/Cの違いを『要件→選定理由→注意点』で問う。単なる定義暗記にしない。"),
-    ("トレードオフ", "正解が一つに見えても条件次第で変わる論点を出す。何を捨て何を取るかを答えさせる。"),
-    ("誤り探し", "提示した設定/設計のどこが危険か、どう直すべきかを問う。"),
-    ("運用・障害対応", "事象→原因候補→切り分け手順→恒久対策を答えさせる。"),
-    ("監査・コンプラ観点", "監査で指摘されやすい点、証跡/責任分界/統制の観点を盛り込む。"),
-    ("コスト最適化", "コストの増えやすいポイントと、要件を満たしつつ下げる方法を問う。"),
+    ("使い分け", "A/B/Cの違いを『要件→選定理由→注意点』で問う。"),
+    ("トレードオフ", "条件次第で変わる論点を出す。何を捨て何を取るかを答えさせる。"),
+    ("誤り探し", "設定/設計のどこが危険か、どう直すべきかを問う。"),
+    ("運用", "事象→原因→切り分け→対策を答えさせる。"),
+    ("監査", "監査で指摘されやすい点を盛り込む。"),
+    ("コスト", "コストの増えやすいポイントと下げる方法を問う。"),
 ]
 
 
 def _level_suffix(level: int) -> str:
+    """Simplified level suffix for faster MCP search"""
     return {
-        100: "入門 基礎 概要",
-        200: "ベストプラクティス 設計 推奨 機能の詳細",
-        300: "設定 運用 実装 トラブルシュート 注意点",
-        400: "設計トレードオフ 複数サービスやアーキテクチャによる実装 アンチパターン 深掘り",
+        100: "基礎",
+        200: "設計",
+        300: "実装",
+        400: "応用",
     }[level]
 
 
 def _stable_pick(seed: str, n: int) -> int:
-    """
-    0..n-1 を決定的に選ぶ（ランダムではなく、同じseedなら同じ結果）。
-    DDBカーソルでのローテーションと相性が良い。
-    """
     if n <= 0:
         return 0
     h = hashlib.sha256(seed.encode("utf-8")).hexdigest()
-    v = int(h[:12], 16)  # enough
+    v = int(h[:12], 16)
     return v % n
 
 
 def _query_space_size(category: str) -> int:
     c = QUERY_COMPONENTS[category]
-    # “サービス×トピック×角度” の組み合わせ空間
     return max(1, len(c["services"]) * len(c["topics"]) * len(c["angles"]))
 
 
 def _build_mcp_query_and_style(category: str, level: int, idx: int) -> tuple[str, str, str]:
-    """
-    idx を組み合わせ空間に写像して MCP 検索クエリを作る。
-    MCP 検索クエリ自体は過度に振らず、ヒット品質を維持しつつバリエーションを増やす。
-    併せて Bedrock へ渡す QUESTION_STYLE をローテする。
-    """
+    """Simplified MCP query for faster search"""
     c = QUERY_COMPONENTS[category]
     services = c["services"]
     topics = c["topics"]
@@ -247,7 +245,6 @@ def _build_mcp_query_and_style(category: str, level: int, idx: int) -> tuple[str
     space = _query_space_size(category)
     i = idx % space
 
-    # 3次元インデックスへ展開
     s_idx = i % len(services)
     t_idx = (i // len(services)) % len(topics)
     a_idx = (i // (len(services) * len(topics))) % len(angles)
@@ -255,20 +252,11 @@ def _build_mcp_query_and_style(category: str, level: int, idx: int) -> tuple[str
     service = services[s_idx]
     topic = topics[t_idx]
     angle = angles[a_idx]
-
-    # レベル別の補助語（既存の _level_suffix を踏襲）
     lvl = _level_suffix(level)
 
-    # ちょい足しの“ゆらぎ”を決定的に付与（検索回数は増やさず、ヒット分布を少し変える）
-    # 付けすぎると精度低下するので少数に限定
-    micro_mods = ["注意点", "制限", "設計", "運用", "ベストプラクティス", "よくある誤解"]
-    m_idx = _stable_pick(f"{category}:{level}:{idx}:micro", len(micro_mods))
-    micro = micro_mods[m_idx]
+    # Simplified query - faster search
+    query = f"{service} {topic} {lvl}".strip()
 
-    # MCP query（短く・意図が通る形）
-    query = f"{service} {topic} {angle} {micro} {lvl}".strip()
-
-    # Question style (Bedrock側の出題“型”)
     st_i = _stable_pick(f"{category}:{level}:{idx}:style", len(QUESTION_STYLES))
     style_name, style_guidance = QUESTION_STYLES[st_i]
 
@@ -283,7 +271,6 @@ _DDB = boto3.resource("dynamodb")
 
 
 def _level_bucket(level: int) -> str:
-    # 200-point bands: 0-199 -> b0, 200-399 -> b1, ...
     return f"b{max(0, int(level) // 200)}"
 
 
@@ -305,15 +292,9 @@ def _get_cursor_next_idx(table_name: str, category: str, level: int) -> int:
 def _advance_cursor_next_idx(
     table_name: str, category: str, level: int, expected_old: int, new_value: int
 ) -> None:
-    """Advance cursor only if it still has the expected value.
-
-    This keeps writes safe under concurrent callers while still updating only on success.
-    """
     table = _DDB.Table(table_name)
     pk = _cursor_pk(category, level)
 
-    # We also set ItemType so operators can identify these items easily.
-    # IMPORTANT: do NOT set GSI1PK/GSI1SK so this never appears in GSI_Recent.
     try:
         table.update_item(
             Key={"QuestionHash": pk},
@@ -327,8 +308,6 @@ def _advance_cursor_next_idx(
             },
         )
     except Exception:
-        # Best-effort: if a concurrent writer already advanced it, that's OK.
-        # The next request will read the latest cursor value.
         return
 
 
@@ -337,38 +316,30 @@ def _advance_cursor_next_idx(
 # -----------------------------
 
 def _make_avoid_hint(h: dict) -> str:
-    def lines(title: str, items: list[str], max_items: int) -> str:
-        items = items[:max_items]
-        if not items:
-            return ""
-        return title + ": " + ", ".join(items) + "\n"
-
-    s = ""
-    s += lines("最近のタイトル", h.get("recentTitles", []), 3)
-    s += lines("最近のタグ", h.get("recentTags", []), 4)
-    s += lines("最近の論点", h.get("recentMustLabels", []), 5)
-    if s:
-        s += "→別の観点で作問\n"
-    return s
+    """Simplified duplicate avoidance hint"""
+    items = []
+    if h.get("recentTitles"):
+        items.extend(h["recentTitles"][:2])
+    if h.get("recentTags"):
+        items.extend(h["recentTags"][:2])
+    
+    if items:
+        return "最近: " + ", ".join(items) + "\n→別の観点で作問\n"
+    return ""
 
 
 def _build_source_context(snippets: list[str]) -> str:
-    lines = [f"AWS資料（最大{SOURCE_SNIPPETS_MAX}件）:"]
+    lines = [f"AWS資料:"]
     for i, t in enumerate(snippets[:SOURCE_SNIPPETS_MAX], start=1):
         t2 = t.strip()
-        if len(t2) > 500:
-            t2 = t2[:500] + "…"
+        if len(t2) > 400:
+            t2 = t2[:400] + "…"
         lines.append(f"[{i}] {t2}")
     text = "\n".join(lines)
     return text[:SOURCE_CONTEXT_MAX_CHARS]
 
 
 def _sanitize_for_hash(s: str) -> str:
-    """
-    question_hash 用の強制サニタイズ。
-    - 制御文字をすべて除去（改行/タブ含む）
-    - 連続空白を1つに圧縮
-    """
     if s is None:
         return ""
     if not isinstance(s, str):
@@ -379,7 +350,6 @@ def _sanitize_for_hash(s: str) -> str:
 
 
 def _resp(status: int, body: dict, event: dict | None = None):
-    # CORS: reflect Origin if present
     origin = None
     if isinstance(event, dict):
         headers = event.get("headers") or {}
@@ -402,10 +372,6 @@ def _resp(status: int, body: dict, event: dict | None = None):
 
 
 def _to_ddb_safe(x):
-    """
-    DynamoDBに入れる前に float を Decimal に変換する（再帰）。
-    boto3 dynamodb は float 非対応。
-    """
     if isinstance(x, float):
         return Decimal(str(x))
     if isinstance(x, dict):
@@ -425,17 +391,9 @@ def _mask(s: str | None, keep: int = 6) -> str:
 
 
 def _resolve_effective_prompt_arn(bedrock: BedrockClient, request_id: str) -> str:
-    """
-    Resolve prompt arn once per invocation.
-
-    Priority:
-      1) BEDROCK_PROMPT_ARN (env) if set
-      2) Resolve by BEDROCK_PROMPT_NAME (env) via bedrock-agent
-    """
     env_prompt_arn = (BEDROCK_PROMPT_ARN or "").strip()
     env_prompt_name = (BEDROCK_PROMPT_NAME or "").strip()
 
-    # extra: allow override by raw env (helps debug if config layer mismatches)
     if not env_prompt_arn:
         env_prompt_arn = (os.environ.get("BEDROCK_PROMPT_ARN") or "").strip()
     if not env_prompt_name:
@@ -479,41 +437,30 @@ def _resolve_effective_prompt_arn(bedrock: BedrockClient, request_id: str) -> st
         )
 
 
-# フェンス救済関数
 import re
 
 _JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 
 
 def _rescue_json_text(raw: str) -> tuple[str, str | None]:
-    """
-    Try to rescue JSON text from common LLM formatting issues.
-    Returns (cleaned_text, reason) where reason is None if no rescue applied.
-    """
     if not isinstance(raw, str):
         return raw, None
 
     s = raw.strip()
 
-    # 1) Remove code fences (```json ... ``` or ``` ... ```)
     if s.startswith("```"):
-        # Find the first newline after opening fence
         first_newline = s.find("\n")
         if first_newline != -1:
-            # Find closing fence
             closing = s.rfind("```")
             if closing > first_newline:
-                # Extract content between fences
                 content = s[first_newline + 1:closing].strip()
                 if content.startswith("{") or content.startswith("["):
                     return content, "stripped_code_fence"
 
-    # 2) Whole response is fenced ```json ... ```
     m = _JSON_FENCE_RE.match(s)
     if m:
         return m.group(1).strip(), "stripped_code_fence_whole"
 
-    # 3) Response contains a fenced block somewhere; extract first fenced block
     if "```" in s:
         blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", s, flags=re.IGNORECASE)
         if blocks:
@@ -521,7 +468,6 @@ def _rescue_json_text(raw: str) -> tuple[str, str | None]:
             if candidate.startswith("{") or candidate.startswith("["):
                 return candidate, "extracted_code_fence_block"
 
-    # 4) Extract outermost {...} or [...] region
     first_obj = s.find("{")
     last_obj = s.rfind("}")
     if first_obj != -1 and last_obj != -1 and first_obj < last_obj:
@@ -545,24 +491,19 @@ def _rescue_json_text(raw: str) -> tuple[str, str | None]:
 
 def lambda_handler(event, context):
     try:
-        # ---- preflight ----
         method = (event.get("requestContext", {}).get("http", {}).get("method") or "").upper()
         if method == "OPTIONS":
             return _resp(200, {"ok": True}, event)
 
-        # ---- host guard ----
-        # This endpoint advances the quiz for everyone. Guard it with a shared secret.
         expected = (HOST_KEY or "").strip()
         if expected and not expected.startswith("CHANGE_ME"):
             headers = event.get("headers") or {}
-            # HTTP API v2 normalizes header keys to lower-case.
             got = headers.get("x-host-key") or headers.get("X-Host-Key")
             if not got or str(got).strip() != expected:
                 raise AppError("Forbidden", "Host key is required", 403)
 
         aws_request_id = getattr(context, "aws_request_id", "-")
 
-        # === runtime config dump (to debug double generation) ===
         print(
             "[CFG] effective runtime config",
             {
@@ -574,7 +515,6 @@ def lambda_handler(event, context):
             },
         )
 
-        # ---- request params ----
         qs = parse_qs((event.get("rawQueryString") or ""))
         category = (qs.get("category", [None])[0] or "security").strip()
         level_str = (qs.get("level", [None])[0] or "100").strip()
@@ -592,7 +532,6 @@ def lambda_handler(event, context):
         if level not in ALLOWED_LEVELS:
             raise AppError("BadRequest", f"Invalid level: {level}", 400)
 
-        # ---- clients ----
         repo = QuizRepo(QUIZ_TABLE_NAME)
 
         brt = boto3.client("bedrock-runtime")
@@ -605,20 +544,14 @@ def lambda_handler(event, context):
 
         mcp = McpClient(MCP_ENDPOINT, MCP_API_KEY)
 
-        # ★ Resolve prompt ARN once per invocation (avoid conflicting checks / repeated lookups)
         effective_prompt_arn = _resolve_effective_prompt_arn(bedrock, aws_request_id)
 
-        # ---- duplicate-avoid hints from DDB (GSI_Recent) ----
         hints = repo.get_recent_hints(DUPLICATE_HINT_WINDOW)
         avoid_hint = _make_avoid_hint(hints)
 
-        # ---- MCP refresh loop (query rotation) ----
-        # cursor is kept, but we rotate over a large deterministic combination space
         start_idx = _get_cursor_next_idx(QUIZ_TABLE_NAME, category, level)
 
         space = _query_space_size(category)
-        # Keep same idea as before: refresh tries "nearby" candidates (bounded by MAX_MCP_REFRESH)
-        # Use space to avoid refresh > space-1 when space is small (still usually large).
         max_refresh = min(MAX_MCP_REFRESH, max(0, space - 1))
 
         refresh = 0
@@ -636,11 +569,9 @@ def lambda_handler(event, context):
 
             source_context = _build_source_context(snippets)
 
-            # ---- generation attempts loop ----
             broke_for_time = False
             for attempt in range(1, MAX_ATTEMPTS + 1):
                 remaining_ms = context.get_remaining_time_in_millis()
-                # Bedrockのタイムアウト(25秒) + バッファ(10秒) = 35秒必要
                 if remaining_ms < 35000:
                     print(
                         "[WARN] Not enough time remaining; stop generation loop",
@@ -658,6 +589,9 @@ def lambda_handler(event, context):
                     "source_context": str(source_context),
                 }
 
+                # Note: Structured Output is not supported with Prompt Management
+                # Using optimized prompt instead
+                
                 raw = bedrock.converse_prompt_json(
                     prompt_arn=effective_prompt_arn,
                     prompt_variables=prompt_vars,
@@ -665,11 +599,10 @@ def lambda_handler(event, context):
 
                 raw_len = len(raw) if isinstance(raw, str) else -1
                 print(
-                    "[INFO] Bedrock returned",
+                    "[INFO] Bedrock returned (structured output)",
                     {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt, "rawLen": raw_len},
                 )
 
-                # guardrailブロックのチェック
                 if isinstance(raw, str):
                     try:
                         raw_obj = json.loads(raw)
@@ -678,23 +611,21 @@ def lambda_handler(event, context):
                                 "[WARN] Guardrail blocked content generation",
                                 {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt},
                             )
-                            # guardrailブロックの場合は次のrefreshへ
                             break
                     except json.JSONDecodeError:
-                        pass  # JSON以外の文字列なので通常処理へ
+                        pass
 
                 try:
+                    # Structured Outputなのでコードフェンス救済は不要（念のため残す）
                     cleaned, reason = _rescue_json_text(raw if isinstance(raw, str) else "")
                     if reason:
                         print(
-                            "[INFO] rescued json text before parsing",
+                            "[INFO] rescued json text (should not happen with structured output)",
                             {
                                 "requestId": aws_request_id,
                                 "refresh": refresh,
                                 "attempt": attempt,
                                 "reason": reason,
-                                "rawLen": len(raw) if isinstance(raw, str) else -1,
-                                "cleanedLen": len(cleaned) if isinstance(cleaned, str) else -1,
                             },
                         )
                     obj = parse_json_strict(cleaned if reason else raw, LIMITS["raw_json_max"])
@@ -708,7 +639,6 @@ def lambda_handler(event, context):
                         print(f"[WARN] raw(head): {raw[:300]}")
                     continue
 
-                # --- sanitize inputs for hashing ---
                 safe_title = _sanitize_for_hash(quiz["title"])
                 safe_body = _sanitize_for_hash(quiz["body"])
                 safe_must_points = []
@@ -754,7 +684,6 @@ def lambda_handler(event, context):
                     "Tags": quiz["tags"],
                 }
 
-                # DynamoDB safe (float -> Decimal)
                 item = _to_ddb_safe(item)
 
                 ok = repo.put_unique(item)
@@ -769,8 +698,6 @@ def lambda_handler(event, context):
                     },
                 )
 
-                # advance cursor by exactly one "candidate step" when we succeed OR when we hit duplicates
-                # (prevents next invocation from repeating the same query and generating the same hash again)
                 _advance_cursor_next_idx(
                     QUIZ_TABLE_NAME,
                     category,
@@ -795,8 +722,6 @@ def lambda_handler(event, context):
                         event,
                     )
 
-                # IMPORTANT: do NOT retry within this request (prevents 2nd Bedrock call)
-                # Let the caller retry; next invocation will use advanced cursor.
                 return _resp(
                     503,
                     {

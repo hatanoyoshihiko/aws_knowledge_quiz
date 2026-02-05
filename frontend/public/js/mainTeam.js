@@ -413,6 +413,40 @@ window.addEventListener("DOMContentLoaded", async () => { // state 初期化（�
     el("submitBtn") ?. addEventListener("click", submitAnswerAndScore);
     el("micBtn") ?. addEventListener("click", toggleMic);
 
+    // Character counter for answer textarea
+    const answerTextarea = el("answer");
+    const charCountCurrent = el("charCountCurrent");
+    const charCount = el("charCount");
+    const MAX_CHARS = 1000;
+
+    function updateCharCount() {
+        if (! answerTextarea || ! charCountCurrent) 
+            return;
+        
+
+        const len = answerTextarea.value.length;
+        charCountCurrent.textContent = len;
+
+        // Color coding based on length
+        if (charCount) {
+            if (len > MAX_CHARS) {
+                charCount.classList.remove("text-slate-400", "text-amber-400");
+                charCount.classList.add("text-red-400");
+            } else if (len > MAX_CHARS * 0.9) {
+                charCount.classList.remove("text-slate-400", "text-red-400");
+                charCount.classList.add("text-amber-400");
+            } else {
+                charCount.classList.remove("text-amber-400", "text-red-400");
+                charCount.classList.add("text-slate-400");
+            }
+        }
+    }
+
+    if (answerTextarea) {
+        answerTextarea.addEventListener("input", updateCharCount);
+        updateCharCount(); // Initial count
+    }
+
     const currentFn = _getCurrentQuizFn();
     const quizByIdFn = _getQuizByIdFn();
     const exitReviewFn = _getExitReviewFn();

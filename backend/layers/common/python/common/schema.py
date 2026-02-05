@@ -19,6 +19,8 @@ LIMITS = {
     "source_summary_max": 250,      # 300→250: さらに短く
     "expected_answer_min": 30,
     "expected_answer_max": 400,     # 500→400: さらに簡潔に
+    "answer_text_min": 10,          # ユーザー回答の最小文字数
+    "answer_text_max": 1000,        # ユーザー回答の最大文字数
     "tags_min": 1,
     "tags_max": 10,
     "tag_max": 30,

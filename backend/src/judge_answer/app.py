@@ -217,6 +217,13 @@ def lambda_handler(event, context):
             raise AppError("BadRequest", "questionId is required", 400)
         if not isinstance(answer_text, str) or not answer_text.strip():
             raise AppError("BadRequest", "answerText is required", 400)
+        
+        # Validate answer length
+        answer_len = len(answer_text.strip())
+        if answer_len < LIMITS["answer_text_min"]:
+            raise AppError("BadRequest", f"回答は{LIMITS['answer_text_min']}文字以上で入力してください", 400)
+        if answer_len > LIMITS["answer_text_max"]:
+            raise AppError("BadRequest", f"回答は{LIMITS['answer_text_max']}文字以内で入力してください", 400)
 
         question_hash = question_id.strip()
 

@@ -1,0 +1,202 @@
+{
+    "type": "object",
+    "properties": {
+        "title": {
+            "type": "string",
+            "description": "クイズのタイトル（80字以内）",
+            "maxLength": 80
+        },
+        "body": {
+            "type": "string",
+            "description": "クイズの本文（300字以内）",
+            "maxLength": 300
+        },
+        "category": {
+            "type": "string",
+            "enum": [
+                "security",
+                "networking",
+                "storage",
+                "serverless",
+                "well-architected"
+            ],
+            "description": "クイズのカテゴリ"
+        },
+        "level": {
+            "type": "integer",
+            "enum": [
+                100, 200, 300, 400
+            ],
+            "description": "難易度レベル"
+        },
+        "rubric": {
+            "type": "object",
+            "properties": {
+                "expectedAnswer": {
+                    "type": "string",
+                    "description": "期待される回答（400字以内）",
+                    "maxLength": 400
+                },
+                "mustHavePoints": {
+                    "type": "array",
+                    "description": "必須ポイント（4-6個）",
+                    "minItems": 4,
+                    "maxItems": 6,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "description": "ポイントID（例: p1, p2）"
+                            },
+                            "label": {
+                                "type": "string",
+                                "description": "ポイントのラベル（60字以内）",
+                                "maxLength": 60
+                            },
+                            "keywords_any": {
+                                "type": "array",
+                                "description": "キーワードリスト",
+                                "items": {
+                                    "type": "string",
+                                    "maxLength": 30
+                                }
+                            },
+                            "notes": {
+                                "type": "string",
+                                "description": "補足説明（150字以内）",
+                                "maxLength": 150
+                            }
+                        },
+                        "required": [
+                            "id", "label", "keywords_any", "notes"
+                        ],
+                        "additionalProperties": false
+                    }
+                },
+                "niceToHavePoints": {
+                    "type": "array",
+                    "description": "加点ポイント",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string",
+                                "maxLength": 60
+                            },
+                            "keywords_any": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "maxLength": 30
+                                }
+                            },
+                            "notes": {
+                                "type": "string",
+                                "maxLength": 150
+                            }
+                        },
+                        "required": [
+                            "id", "label", "keywords_any", "notes"
+                        ],
+                        "additionalProperties": false
+                    }
+                },
+                "commonWrongClaims": {
+                    "type": "array",
+                    "description": "よくある誤り",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string",
+                                "maxLength": 60
+                            },
+                            "keywords_any": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "maxLength": 30
+                                }
+                            },
+                            "notes": {
+                                "type": "string",
+                                "maxLength": 150
+                            }
+                        },
+                        "required": [
+                            "id", "label", "keywords_any", "notes"
+                        ],
+                        "additionalProperties": false
+                    }
+                },
+                "scoringPolicy": {
+                    "type": "object",
+                    "properties": {
+                        "correct_threshold": {
+                            "type": "number",
+                            "const": 1.0
+                        },
+                        "close_threshold": {
+                            "type": "number",
+                            "const": 0.8
+                        },
+                        "must_points_total": {
+                            "type": "integer"
+                        },
+                        "close_if_must_points_met_at_least": {
+                            "type": "integer"
+                        },
+                        "correct_if_must_points_met_at_least": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": [
+                        "correct_threshold",
+                        "close_threshold",
+                        "must_points_total",
+                        "close_if_must_points_met_at_least",
+                        "correct_if_must_points_met_at_least"
+                    ],
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "expectedAnswer",
+                "mustHavePoints",
+                "niceToHavePoints",
+                "commonWrongClaims",
+                "scoringPolicy"
+            ],
+            "additionalProperties": false
+        },
+        "sourceSummary": {
+            "type": "string",
+            "description": "ソースの要約（250字以内）",
+            "maxLength": 250
+        },
+        "tags": {
+            "type": "array",
+            "description": "タグリスト",
+            "items": {
+                "type": "string"
+            }
+        }
+    },
+    "required": [
+        "title",
+        "body",
+        "category",
+        "level",
+        "rubric",
+        "sourceSummary",
+        "tags"
+    ],
+    "additionalProperties": false
+}
