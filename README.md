@@ -49,7 +49,7 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
    - 重複時は503エラーを返し、クライアント側で再試行を促す
 
 **パフォーマンス設定**:
-- Lambda実行時間: 60秒、メモリ: 2048MB
+- Lambda実行時間: 60秒、メモリ: 512MB
 - Bedrock接続タイムアウト: 5秒、読み取りタイムアウト: 25秒
 
 ### JudgeAnswerFunction（回答採点）
@@ -153,7 +153,7 @@ CLOUDFRONT_URL="$(aws cloudformation describe-stacks \
 echo "CloudFrontUrl=$CLOUDFRONT_URL"
 ```
 
-- デプロイ
+- デプロイオプション
   - StageName: API Gatewayのステージ名（例: dev, prod）
   - FrontendOrigin: CloudFrontのURL（CORS設定用）
   - CloudFrontToApiHeaderValue: CloudFrontからAPI Gatewayへの認証用ヘッダー値（任意の秘密文字列）
@@ -555,11 +555,11 @@ sequenceDiagram
   - keywords_any: ≤10字
 - **JSON救済処理**: コードフェンス除去、外側オブジェクト抽出
 
-## パフォーマンス最適化の履歴
+## パフォーマンスチューニング
 
 ### タイムアウト対策
 - **Lambda実行時間**: 60秒
-- **Lambdaメモリ**: 2048MB（GetNextQuizFunction）
+- **Lambdaメモリ**: 512MB（GetNextQuizFunction）
 - **Bedrock接続タイムアウト**: 5秒
 - **Bedrock読み取りタイムアウト**: 25秒
 - **残り時間チェック**: 35秒未満で生成ループを停止
