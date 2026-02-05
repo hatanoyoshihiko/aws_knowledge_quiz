@@ -147,12 +147,15 @@ class BedrockClient:
         prompt_arn: str,
         prompt_variables: dict[str, object],
         messages: Optional[list[dict[str, Any]]] = None,
+        json_schema: Optional[dict[str, Any]] = None,
     ) -> str:
         """
         Prompt management の prompt version ARN を modelId に指定して Converse する。
         Bedrock の promptVariables は各値が dict 形式（例: {"text": "..."}）を要求する。
         既存実装（get_next_quiz）は str を渡してくるため、ここで後方互換の変換を行う。
         返り値は assistant テキスト（JSON文字列）を返す。
+        
+        json_schema を指定すると Structured Output を使用（推奨）。
         """
         if not isinstance(prompt_arn, str) or not prompt_arn.strip():
             raise ValueError("prompt_arn is required")
@@ -182,6 +185,21 @@ class BedrockClient:
         }
         if messages:
             req["messages"] = messages
+
+        # Structured Output support
+        if json_schema:
+            req["outputConfig"] = {
+                "textFormat": {
+                    "type": "json_schema",
+                    "structure": {
+                        "jsonSchema": {
+                            "schema": json.dumps(json_schema, ensure_ascii=False),
+                            "name": "quiz_generation",
+                            "description": "AWS quiz generation output"
+                        }
+                    }
+                }
+            }
 
         # Use appropriate client
         client = self._client if self._client is not None else self._rt

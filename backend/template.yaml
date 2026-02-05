@@ -206,8 +206,8 @@ Resources:
           TemplateType: "CHAT"
           InferenceConfiguration:
             Text:
-              MaxTokens: 3000
-              Temperature: 0.2
+              MaxTokens: 2048
+              Temperature: 0.15
           TemplateConfiguration:
             Chat:
               InputVariables:
@@ -221,8 +221,13 @@ Resources:
                 - Text: |
                     AWS教育用クイズ作成者。SOURCE_CONTEXTのみを根拠に、日本語で1問生成。
                     
+                    【重要】出力形式:
+                    - 純粋なJSONオブジェクトのみ出力
+                    - コードフェンス(```)は絶対に使用禁止
+                    - 説明文・前置き・後置きは一切不要
+                    - {で始まり}で終わる
+                    
                     必須ルール:
-                    - 完全なJSONのみ出力（コードフェンス・説明文禁止、必ず最後の}まで出力）
                     - SOURCE_CONTEXTにない事実は断定しない
                     - rubric必須（Must/Nice/Wrong/ScoringPolicy）
                     - level: 100=基礎、200=設計、300=実装、400=専門家
@@ -247,7 +252,7 @@ Resources:
                         - title≤80字, body≤300字, expectedAnswer≤400字, sourceSummary≤250字
                         - label≤60字, notes≤150字, keywords_any各≤30字
                         - mustHavePointsは4〜6個
-                        - JSONのみ出力（```禁止）
+                        - 【重要】純粋なJSONのみ出力（```は絶対禁止）
                         - 極力簡潔に（生成速度最優先）
                         - bodyは必ず完結させる（途中で切らない）
                         
@@ -260,7 +265,7 @@ Resources:
                         根拠:
                         {{source_context}}
                         
-                        出力形式:
+                        【出力例】{で始まり}で終わる純粋なJSON:
                         {"title":"","body":"","category":"","level":0,"rubric":{"expectedAnswer":"","mustHavePoints":[{"id":"p1","label":"","keywords_any":[""],"notes":""}],"niceToHavePoints":[{"id":"n1","label":"","keywords_any":[""],"notes":""}],"commonWrongClaims":[{"id":"w1","label":"","keywords_any":[""],"notes":""}],"scoringPolicy":{"correct_threshold":1.0,"close_threshold":0.8,"must_points_total":4,"close_if_must_points_met_at_least":3,"correct_if_must_points_met_at_least":4}},"sourceSummary":"","tags":[]}
 
   QuizPromptVersion:
@@ -278,7 +283,7 @@ Resources:
       Handler: app.lambda_handler
       CodeUri: src/get_next_quiz/
       Timeout: 60
-      MemorySize: 2048
+      MemorySize: 512
       Layers:
         - !Ref CommonLayer
       Policies:
@@ -298,6 +303,29 @@ Resources:
           Properties:
             ApiId: !Ref QuizApi
             Path: /quiz/next
+            Method: GET
+
+  StartQuizGenerationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: app.lambda_handler
+      CodeUri: src/start_quiz_generation/
+      Timeout: 15
+      MemorySize: 256
+      Layers:
+        - !Ref CommonLayer
+      Environment:
+        Variables:
+          GET_NEXT_QUIZ_FUNCTION_NAME: !Ref GetNextQuizFunction
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GetNextQuizFunction
+      Events:
+        StartGeneration:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref QuizApi
+            Path: /quiz/generate
             Method: GET
 
   GetCurrentQuizFunction:
