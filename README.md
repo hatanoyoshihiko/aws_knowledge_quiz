@@ -319,8 +319,11 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  FEH[Host UI] -->|2 POST /quiz/next| GW[API Gateway]
-  GW -->|3 Invoke| NQ[get_next_quiz]
+  FEH[Host UI] -->|2 GET /quiz/generate| GW[API Gateway]
+  GW -->|3 Invoke| SQG[start_quiz_generation]
+  SQG -->|4 Async Invoke| NQ[get_next_quiz]
+  SQG -->|5 202 Accepted| GW
+  GW -->|6 Response| FEH
 
   subgraph Core["AI / Data"]
     MCP[AWS Knowledge MCP]
@@ -328,19 +331,17 @@ flowchart LR
     DDB[DynamoDB]
   end
 
-  NQ -->|4 Knowledge| MCP
-  NQ -->|5 Generate| BR
-  NQ -->|6 Save| DDB
-  NQ -->|7 Quiz| GW
-  GW -->|8 Response| FEH
+  NQ -->|7 Knowledge| MCP
+  NQ -->|8 Generate| BR
+  NQ -->|9 Save| DDB
 ```
 
 ### 3) 採点＋同期（Judge / Sync）
 
 ```mermaid
 flowchart LR
-  FET[Team UI] -->|9 POST /quiz/judge| GW[API Gateway]
-  GW -->|10 Invoke| JA[judge_answer]
+  FET[Team UI] -->|10 POST /quiz/judge| GW[API Gateway]
+  GW -->|11 Invoke| JA[judge_answer]
 
   subgraph Core["AI / Data"]
     MCP[AWS Knowledge MCP]
@@ -348,21 +349,21 @@ flowchart LR
     DDB[DynamoDB]
   end
 
-  JA -->|11 Load| DDB
-  JA -->|12 Knowledge| MCP
-  JA -->|13 Judge| BR
-  JA -->|14 Save| DDB
-  JA -->|15 Result| GW
-  GW -->|16 Response| FET
+  JA -->|12 Load| DDB
+  JA -->|13 Knowledge| MCP
+  JA -->|14 Judge| BR
+  JA -->|15 Save| DDB
+  JA -->|16 Result| GW
+  GW -->|17 Response| FET
 
-  FEH[Host UI] -.->|17 GET /quiz/current| GW
-  FET -.->|17 GET /quiz/current| GW
-  GW -->|18 Invoke| GC[get_current_quiz]
+  FEH[Host UI] -.->|18 GET /quiz/current| GW
+  FET -.->|18 GET /quiz/current| GW
+  GW -->|19 Invoke| GC[get_current_quiz]
   GC --> DDB
 
-  FEH -.->|17 GET /scores| GW
-  FET -.->|17 GET /scores| GW
-  GW -->|19 Invoke| GS[get_scores]
+  FEH -.->|18 GET /scores| GW
+  FET -.->|18 GET /scores| GW
+  GW -->|20 Invoke| GS[get_scores]
   GS --> DDB
 ```
 
@@ -376,26 +377,31 @@ sequenceDiagram
   actor Host as Host(Browser)
   participant FEH as Host UI
   participant GW as API Gateway
+  participant SQG as start_quiz_generation
   participant NQ as get_next_quiz
   participant MCP as Knowledge MCP
   participant BR as Bedrock
   participant DB as DynamoDB
 
   Host->>FEH: 「次のクイズ」クリック
-  FEH->>GW: POST /quiz/next (構成図:2)
-  GW->>NQ: Invoke (構成図:3)
+  FEH->>GW: GET /quiz/generate (構成図:2)
+  GW->>SQG: Invoke (構成図:3)
+  SQG->>NQ: Async Invoke (構成図:4)
+  SQG-->>GW: 202 Accepted (構成図:5)
+  GW-->>FEH: 202 Accepted (構成図:6)
 
-  NQ->>MCP: ナレッジ検索 (構成図:4)
-  MCP-->>NQ: ナレッジ要点 (構成図:4)
+  Note over NQ,DB: 非同期でクイズ生成実行
 
-  NQ->>BR: ナレッジ + 条件でクイズ生成 (構成図:5)
-  BR-->>NQ: クイズ（問題/選択肢/正解/根拠）(構成図:5)
+  NQ->>MCP: ナレッジ検索 (構成図:7)
+  MCP-->>NQ: ナレッジ要点 (構成図:7)
 
-  NQ->>DB: currentQuiz / 状態保存 (構成図:6)
-  DB-->>NQ: OK (構成図:6)
+  NQ->>BR: ナレッジ + 条件でクイズ生成 (構成図:8)
+  BR-->>NQ: クイズ（問題/選択肢/正解/根拠）(構成図:8)
 
-  NQ-->>GW: quiz JSON (構成図:7)
-  GW-->>FEH: quiz JSON (構成図:8)
+  NQ->>DB: currentQuiz / 状態保存 (構成図:9)
+  DB-->>NQ: OK (構成図:9)
+
+  Note over FEH,DB: Host UIは定期ポーリングで最新クイズを取得
 ```
 
 - 「採点する」ボタンを押したとき
@@ -412,23 +418,23 @@ sequenceDiagram
   participant BR as Bedrock
 
   Team->>FET: 回答入力・送信
-  FET->>GW: POST /quiz/judge (構成図:9)
-  GW->>JA: Invoke (構成図:10)
+  FET->>GW: POST /quiz/judge (構成図:10)
+  GW->>JA: Invoke (構成図:11)
 
-  JA->>DB: クイズ情報取得 (構成図:11)
-  DB-->>JA: quiz context (構成図:11)
+  JA->>DB: クイズ情報取得 (構成図:12)
+  DB-->>JA: quiz context (構成図:12)
 
-  JA->>MCP: 根拠ナレッジ取得 (構成図:12)
-  MCP-->>JA: ナレッジ要点 (構成図:12)
+  JA->>MCP: 根拠ナレッジ取得 (構成図:13)
+  MCP-->>JA: ナレッジ要点 (構成図:13)
 
-  JA->>BR: 回答判定依頼（rubric）(構成図:13)
-  BR-->>JA: score / feedback (構成図:13)
+  JA->>BR: 回答判定依頼（rubric）(構成図:14)
+  BR-->>JA: score / feedback (構成図:14)
 
-  JA->>DB: スコア・履歴保存 (構成図:14)
-  DB-->>JA: OK (構成図:14)
+  JA->>DB: スコア・履歴保存 (構成図:15)
+  DB-->>JA: OK (構成図:15)
 
-  JA-->>GW: result JSON (構成図:15)
-  GW-->>FET: result JSON (構成図:16)
+  JA-->>GW: result JSON (構成図:16)
+  GW-->>FET: result JSON (構成図:17)
 ```
 
 - クイズの表示同期（全クライアント）
@@ -443,8 +449,8 @@ sequenceDiagram
   participant DB as DynamoDB
 
   loop 定期ポーリング（現在クイズ）
-    FE->>GW: GET /quiz/current (構成図:17)
-    GW->>GC: Invoke (構成図:18)
+    FE->>GW: GET /quiz/current (構成図:18)
+    GW->>GC: Invoke (構成図:19)
     GC->>DB: Get currentQuiz
     DB-->>GC: quiz
     GC-->>GW: quiz
@@ -452,8 +458,8 @@ sequenceDiagram
   end
 
   loop 定期ポーリング（スコア）
-    FE->>GW: GET /scores (構成図:17)
-    GW->>GS: Invoke (構成図:19)
+    FE->>GW: GET /scores (構成図:18)
+    GW->>GS: Invoke (構成図:20)
     GS->>DB: Get scores
     DB-->>GS: scores
     GS-->>GW: scores
