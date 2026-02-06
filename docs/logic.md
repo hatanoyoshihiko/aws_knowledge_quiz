@@ -21,6 +21,7 @@
 | 関数名 | タイムアウト | メモリ | 役割 | エンドポイント |
 | --- | --- | --- | --- | --- |
 | JudgeAnswerFunction | 60秒 | 512MB | 回答採点 | POST /quiz/answer |
+| GenerateExampleAnswerFunction | 60秒 | 512MB | 回答例生成 | GET /quiz/example-answer |
 | SubmitScoreFunction | 60秒 | 512MB | スコア送信 | POST /scores/submit |
 | GetScoresFunction | 60秒 | 512MB | スコアボード取得 | GET /scores |
 
@@ -253,6 +254,37 @@ Bedrock は各 P について「満たしているか（met）」を判定し、
 - 初回回答: ScoresTableにスコアを加算
 - 再評価: AnswerHistoryTableのみ更新（スコアは変更しない）
 - 回答履歴に詳細情報を記録（result、score、feedback、試行回数）
+
+## 回答例生成フロー
+
+### 1. 問題情報の取得
+- questionIdでDynamoDBから問題とrubric（採点基準）を取得
+
+### 2. Bedrockで回答例生成
+- SYSTEM_PROMPT: 模範回答生成者の役割を定義
+- USER_PROMPT: 問題本文、rubric（必須要点、加点要素）を含む
+- 生成条件:
+  - 必須要点（mustHavePoints）をすべて含む
+  - 加点要素（niceToHavePoints）も考慮
+  - よくある誤解（commonWrongClaims）を避ける
+  - 200〜300字程度の簡潔な回答
+  - 100点満点を獲得できる内容
+
+### 3. 回答例の返却
+- 生成された回答例をJSON形式で返却: `{"exampleAnswer": "..."}`
+- Team UIで「回答例を生成」ボタン押下後に表示
+
+### 4. パフォーマンス設定
+- Lambda実行時間: 60秒、メモリ: 512MB
+- Bedrock接続タイムアウト: 5秒、読み取りタイムアウト: 25秒
+- MaxTokens: 800（200〜300字の回答生成に十分）
+- Temperature: 0.3（適度な多様性と品質のバランス）
+
+### 5. 使用シーン
+- 採点後に「回答例を生成」ボタンが表示される
+- 学習目的で100点満点の回答を確認したい場合
+- 自分の回答と比較して改善点を見つける場合
+- 復習モードで過去問の模範回答を確認する場合
 
 ## 出題されたクイズがチーム画面で共通に出力される仕組み
 
@@ -528,23 +560,25 @@ for (let i = 0; i < maxAttempts; i++) {
 | `backend/src/start_quiz_generation/app.py` |   6 | **非同期クイズ生成開始API**。GetNextQuizFunctionを非同期呼び出し、即座に202レスポンス | NextQuiz (Async) |
 | `backend/src/get_next_quiz/app.py`         |   7 | **出題API本体**。MCP検索 → Bedrock生成 → クイズ状態保存 → レスポンス | NextQuiz         |
 | `backend/src/judge_answer/app.py`          |   8 | **採点API本体**。入力正規化 → MCP検索 → Bedrock判定 → 検証 → 保存 | Judge            |
-| `backend/src/get_current_quiz/app.py`      |   9 | **現在出題中クイズ取得API**。Host/Team 両方から参照される           | Sync             |
-| `backend/src/get_scores/app.py`            |  10 | **スコア一覧取得API**。全チームのスコアを集計・返却                   | Sync             |
-| `backend/src/submit_score/app.py`          |  11 | **スコア送信API**。初回回答時のみスコア加算、再評価時は履歴のみ更新         | Judge            |
-| `backend/src/get_quiz_by_id/app.py`        |  12 | **過去問取得API**。questionIdを指定して過去のクイズを取得           | Review           |
-| `backend/layers/common/python/common/config.py`     |  13 | 環境変数・定数定義（テーブル名、モデルID、閾値など）                     | 全体               |
-| `backend/layers/common/python/common/schema.py`     |  14 | 入出力スキーマ定義（quiz / answer / result / rubric 等）    | NextQuiz / Judge |
-| `backend/layers/common/python/common/normalize.py`  |  15 | ユーザー入力の正規化（空白、改行、表記揺れ補正）                        | Judge            |
-| `backend/layers/common/python/common/validate.py`   |  16 | 採点結果の整合性検証（スコア範囲、mustPointsMet 比率など）            | Judge            |
-| `backend/layers/common/python/common/ddb.py`        |  17 | DynamoDB アクセス層（クイズ状態・履歴・スコアの CRUD）              | 全体               |
-| `backend/layers/common/python/common/bedrock.py`    |  18 | Bedrock 実行ラッパー（プロンプト構築、推論、レスポンス整形）              | NextQuiz / Judge |
-| `backend/layers/common/python/common/mcp.py`        |  19 | AWS Knowledge MCP Server 呼び出し補助（検索・取得処理）        | NextQuiz / Judge |
-| `backend/layers/common/python/common/errors.py`     |  20 | API 用例外・エラー整形（HTTP ステータス・メッセージ）                 | 全体               |
-| `backend/layers/common/python/common/__init__.py`   |  21 | common パッケージ初期化                                 | 全体               |
-| `backend/src/start_quiz_generation/__init__.py` |  22 | start_quiz_generation パッケージ初期化                  | NextQuiz (Async) |
-| `backend/src/get_next_quiz/__init__.py`    |  23 | get_next_quiz パッケージ初期化                          | NextQuiz         |
-| `backend/src/judge_answer/__init__.py`     |  24 | judge_answer パッケージ初期化                           | Judge            |
-| `backend/src/get_current_quiz/__init__.py` |  25 | get_current_quiz パッケージ初期化                       | Sync             |
-| `backend/src/get_scores/__init__.py`       |  26 | get_scores パッケージ初期化                             | Sync             |
-| `backend/src/submit_score/__init__.py`     |  27 | submit_score パッケージ初期化                           | Judge            |
-| `backend/src/get_quiz_by_id/__init__.py`   |  28 | get_quiz_by_id パッケージ初期化                         | Review           |
+| `backend/src/generate_example_answer/app.py` |   9 | **回答例生成API**。問題とrubricを取得 → Bedrock生成 → 模範回答返却 | Example Answer   |
+| `backend/src/get_current_quiz/app.py`      |  10 | **現在出題中クイズ取得API**。Host/Team 両方から参照される           | Sync             |
+| `backend/src/get_scores/app.py`            |  11 | **スコア一覧取得API**。全チームのスコアを集計・返却                   | Sync             |
+| `backend/src/submit_score/app.py`          |  12 | **スコア送信API**。初回回答時のみスコア加算、再評価時は履歴のみ更新         | Judge            |
+| `backend/src/get_quiz_by_id/app.py`        |  13 | **過去問取得API**。questionIdを指定して過去のクイズを取得           | Review           |
+| `backend/layers/common/python/common/config.py`     |  14 | 環境変数・定数定義（テーブル名、モデルID、閾値など）                     | 全体               |
+| `backend/layers/common/python/common/schema.py`     |  15 | 入出力スキーマ定義（quiz / answer / result / rubric 等）    | NextQuiz / Judge |
+| `backend/layers/common/python/common/normalize.py`  |  16 | ユーザー入力の正規化（空白、改行、表記揺れ補正）                        | Judge            |
+| `backend/layers/common/python/common/validate.py`   |  17 | 採点結果の整合性検証（スコア範囲、mustPointsMet 比率など）            | Judge            |
+| `backend/layers/common/python/common/ddb.py`        |  18 | DynamoDB アクセス層（クイズ状態・履歴・スコアの CRUD）              | 全体               |
+| `backend/layers/common/python/common/bedrock.py`    |  19 | Bedrock 実行ラッパー（プロンプト構築、推論、レスポンス整形）              | NextQuiz / Judge |
+| `backend/layers/common/python/common/mcp.py`        |  20 | AWS Knowledge MCP Server 呼び出し補助（検索・取得処理）        | NextQuiz / Judge |
+| `backend/layers/common/python/common/errors.py`     |  21 | API 用例外・エラー整形（HTTP ステータス・メッセージ）                 | 全体               |
+| `backend/layers/common/python/common/__init__.py`   |  22 | common パッケージ初期化                                 | 全体               |
+| `backend/src/start_quiz_generation/__init__.py` |  23 | start_quiz_generation パッケージ初期化                  | NextQuiz (Async) |
+| `backend/src/get_next_quiz/__init__.py`    |  24 | get_next_quiz パッケージ初期化                          | NextQuiz         |
+| `backend/src/judge_answer/__init__.py`     |  25 | judge_answer パッケージ初期化                           | Judge            |
+| `backend/src/generate_example_answer/__init__.py` |  26 | generate_example_answer パッケージ初期化                | Example Answer   |
+| `backend/src/get_current_quiz/__init__.py` |  27 | get_current_quiz パッケージ初期化                       | Sync             |
+| `backend/src/get_scores/__init__.py`       |  28 | get_scores パッケージ初期化                             | Sync             |
+| `backend/src/submit_score/__init__.py`     |  29 | submit_score パッケージ初期化                           | Judge            |
+| `backend/src/get_quiz_by_id/__init__.py`   |  30 | get_quiz_by_id パッケージ初期化                         | Review           |
