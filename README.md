@@ -119,6 +119,26 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 - questionIdをキーにDynamoDBから問題を取得
 - 復習機能や過去問参照に使用
 
+### GenerateExampleAnswerFunction（回答例生成）
+**役割**: 100点満点の回答例を生成
+
+**処理フロー**:
+1. **問題情報の取得**
+   - questionIdでDynamoDBから問題とrubric（採点基準）を取得
+
+2. **Bedrockで回答例生成**
+   - 問題本文、rubric（必須要点、加点要素）を含むプロンプトを構築
+   - 100点を満たす模範回答を生成（200〜300字程度）
+   - 必須要点をすべて含み、加点要素も考慮した回答
+
+3. **回答例の返却**
+   - 生成された回答例をJSON形式で返却
+   - Team UIで「回答例を生成」ボタン押下後に表示
+
+**パフォーマンス設定**:
+- Lambda実行時間: 60秒、メモリ: 512MB
+- Bedrock接続タイムアウト: 5秒、読み取りタイムアウト: 25秒
+
 ## デプロイ方法
 
 ### 前準備
@@ -278,6 +298,7 @@ aws s3 sync public "s3://$BUCKET_NAME/" --delete
 3. 「採点する」ボタンを押下
 4. 結果にスコアとフィードバックが表示される
 5. 「詳細表示」ボタンで必須要点の充足状況を確認可能
+6. 「回答例を生成」ボタンで100点満点の模範回答を表示（オプション）
 
 **採点結果の表示**:
 - **correct**: 必須要点を100%充足（通常4個すべて）
@@ -285,6 +306,7 @@ aws s3 sync public "s3://$BUCKET_NAME/" --delete
 - **incorrect**: 必須要点の充足が不十分
 - フィードバック: 最大400字のトンチを利かせたユーモアに富んだ文章
 - 要点詳細: mustPointsMet（充足した要点）、missingMustPoints（不足している要点）
+- 回答例: 採点後に表示されるボタンから100点満点の模範回答を生成可能
 
 ## 仕様
 
@@ -475,8 +497,7 @@ sequenceDiagram
 
 **処理フロー**:
 1. **GSI_Recent（Global Secondary Index）からクエリ**
-   - GSI1PK = "RECENT" で全クイズを対象に
-   - GSI1SK（CreatedAt）で自動的にソート
+   - GSI1PK = "RECENT" で全クイズを対象にGSI1SK（CreatedAt）で自動的にソート
    - ScanIndexForward = False で降順（新しい順）に
    - Limit = 1 で先頭1件（最新）のみ取得
 
