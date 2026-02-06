@@ -441,6 +441,41 @@ Resources:
             Path: /quiz/question
             Method: get
 
+  # ==============================
+  # 回答例生成
+  # GET /quiz/example-answer
+  # ==============================
+  GenerateExampleAnswerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-generate-example-answer"
+      CodeUri: src/generate_example_answer/
+      Handler: app.lambda_handler
+      Runtime: python3.14
+      MemorySize: 512
+      Layers:
+        - !Ref CommonLayer
+      Timeout: 30
+      Environment:
+        Variables:
+          QUIZ_TABLE_NAME: !Ref QuizHistoryTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref QuizHistoryTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:ApplyGuardrail
+              Resource: "*"
+      Events:
+        GenerateExampleAnswerApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref QuizApi
+            Path: /quiz/example-answer
+            Method: get
+
 # Bedrock Prompt Management Define
 
 Outputs:

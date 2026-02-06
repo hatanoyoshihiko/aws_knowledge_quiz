@@ -21,7 +21,8 @@ SYSTEM_PROMPT = """あなたはAWSクイズの採点者です。ルール:
 - 出力は必ずJSONのみ（前後に文章を付けない）。
 - result は correct / close / incorrect のいずれか。
 - close は必須要点の約8割。RUBRIC.scoringPolicy に厳密に従う。
-- feedback は最大400字で簡潔に。
+- feedback は【絶対に400文字以内】で簡潔に。超過厳禁。
+- nextHint は【絶対に280文字以内】で簡潔に。超過厳禁。
 - 同義表現は加点してよい。不要に厳密な言い回しにはしない。
 """
 
@@ -56,6 +57,11 @@ USER_PROMPT_TEMPLATE = """次のクイズを採点してください。
 - 満たした must point 数を数え、RUBRIC.scoringPolicy に従って result を決める。
 - score は must点の充足率（0〜1）を基本とし、niceToHaveで最大+0.1まで上乗せしてよい（ただし1.0を超えない）。
 - 回答コメントはトンチを利かしたり、ユーモアに富んだ文章とする。
+
+文字数制約（厳守）:
+- feedback: 【絶対に400文字以内】。超過した場合はエラーになります。
+- nextHint: 【絶対に280文字以内】。超過した場合はエラーになります。
+- 簡潔で要点を押さえたコメントにしてください。
 
 制約（重要）:
 - mustPointsMet と missingMustPoints は MUST_HAVE_POINT_IDS のみを使用する（NICE の id を入れない）。

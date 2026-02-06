@@ -138,6 +138,7 @@ def _require_str(
     *,
     min_len: int = 1,
     max_len: int | None = None,
+    truncate: bool = False,
 ) -> str:
     v = _require_key(obj, key)
     if not _is_str(v):
@@ -146,7 +147,11 @@ def _require_str(
     if len(v2) < min_len:
         raise SchemaError(f"{key} is too short")
     if max_len is not None and len(v2) > max_len:
-        raise SchemaError(f"{key} is too long (max {max_len})")
+        if truncate:
+            # 切り詰めて続行（UIを落とさない）
+            v2 = v2[:max_len]
+        else:
+            raise SchemaError(f"{key} is too long (max {max_len})")
     return v2
 
 
@@ -369,15 +374,18 @@ def validate_judgment(obj: Dict[str, Any], rubric: Dict[str, Any]) -> Dict[str, 
     if set(must_met) & set(missing):
         raise SemanticError("mustPointsMet and missingMustPoints must be disjoint")
 
-    feedback = _require_str(obj, "feedback", min_len=1, max_len=400)
+    # feedbackは超過時に切り詰める（Bedrockが守らないことがあるため）
+    feedback = _require_str(obj, "feedback", min_len=1, max_len=LIMITS["feedback_max"], truncate=True)
+    
     next_hint = obj.get("nextHint", "")
     if next_hint is None:
         next_hint = ""
     if not _is_str(next_hint):
         raise SchemaError("nextHint must be string")
     next_hint2 = _sanitize_text(_strip(next_hint))
-    if len(next_hint2) > 280:
-        raise SchemaError("nextHint too long (max 280)")
+    if len(next_hint2) > LIMITS["hint_max"]:
+        # 超過した場合は切り詰める（エラーにせずUIを落とさない）
+        next_hint2 = next_hint2[:LIMITS["hint_max"]]
 
     # rubric integrity checks
     if not _is_dict(rubric):

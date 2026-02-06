@@ -48,21 +48,32 @@ def _public_question(item: dict) -> dict:
 
 def lambda_handler(event, context):
     try:
+        # Parse query parameters for filtering
+        params = event.get("queryStringParameters") or {}
+        min_created_at = params.get("minCreatedAt")  # ISO format timestamp
+
         repo = QuizRepo(QUIZ_TABLE_NAME)
 
         # newest first from RECENT GSI
         try:
-            resp = repo.table.query(
-                IndexName="GSI_Recent",
-                KeyConditionExpression=Key("GSI1PK").eq("RECENT"),
-                ScanIndexForward=False,
-                Limit=1,
-            )
+            query_kwargs = {
+                "IndexName": "GSI_Recent",
+                "KeyConditionExpression": Key("GSI1PK").eq("RECENT"),
+                "ScanIndexForward": False,
+                "Limit": 10,  # Get more items to filter by timestamp
+            }
+            
+            resp = repo.table.query(**query_kwargs)
         except Exception:
             logger.exception("Failed to query recent quiz")
             raise AppError("InternalError", "Failed to load current quiz", 500)
 
         items = resp.get("Items") or []
+        
+        # Filter by minCreatedAt if specified
+        if min_created_at:
+            items = [item for item in items if item.get("CreatedAt", "") >= min_created_at]
+        
         if not items:
             return _resp(200, {"status": "empty", "question": None, "message": "まだクイズが出題されていません。出題者が『次のクイズ』を押してください。"})
 

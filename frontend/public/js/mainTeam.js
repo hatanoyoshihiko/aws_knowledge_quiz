@@ -9,7 +9,7 @@ import {setConn} from "./ui/connection.js";
 import {toast} from "./ui/toast.js";
 import {clearGlobalMsg} from "./ui/globalMsg.js";
 import {resetAll} from "./ui/questionView.js";
-import {resetResult, wirePointsToggle} from "./ui/resultView.js";
+import {resetResult, wirePointsToggle, showExampleAnswer, hideExampleAnswer} from "./ui/resultView.js";
 import {setupSpeech, toggleMic, stopMic} from "./ui/speech.js";
 import {copyQid} from "./ui/clipboard.js";
 import {toggleSidebar} from "./ui/sidebar.js";
@@ -424,6 +424,7 @@ window.addEventListener("DOMContentLoaded", async () => { // state 初期化（�
             return;
         
 
+
         const len = answerTextarea.value.length;
         charCountCurrent.textContent = len;
 
@@ -475,6 +476,7 @@ window.addEventListener("DOMContentLoaded", async () => { // state 初期化（�
 
     // 履歴クリックイベント（REVIEW）
     window.addEventListener("quiz:review", async (ev) => {
+        console.log("[DEBUG] quiz:review event triggered, detail =", ev ?. detail);
         const qid = ev ?. detail ?. questionId;
         if (! qid) 
             return;
@@ -487,8 +489,14 @@ window.addEventListener("DOMContentLoaded", async () => { // state 初期化（�
         
 
 
-        try {
+        try { // 採点結果をリセット（新しい問題を表示する前に）
+            console.log("[DEBUG] quiz:review: calling resetResult()");
+            resetResult();
+            console.log("[DEBUG] quiz:review: resetResult() completed");
+
+            console.log("[DEBUG] quiz:review: calling quizByIdFn()");
             await quizByIdFn(qid, {silent: false});
+            console.log("[DEBUG] quiz:review: quizByIdFn() completed");
             _renderModeBadge();
         } catch (e) {
             toast(`復習取得に失敗: ${
@@ -518,6 +526,37 @@ window.addEventListener("DOMContentLoaded", async () => { // state 初期化（�
     el("copyQidBtn") ?. addEventListener("click", copyQid);
     el("sidebarToggle") ?. addEventListener("click", toggleSidebar);
     el("clearHistoryBtn") ?. addEventListener("click", clearHistory);
+
+    // Example answer generation
+    el("generateExampleBtn") ?. addEventListener("click", async () => {
+        const btn = el("generateExampleBtn");
+        if (! btn) 
+            return;
+        
+
+
+        // Disable button during generation
+        btn.disabled = true;
+        btn.innerHTML = '<span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-emerald-600 border-t-emerald-200"></span><span>生成中...</span>';
+
+        try {
+            const exampleAnswer = await quizApi.generateExampleAnswer();
+            if (exampleAnswer) {
+                showExampleAnswer(exampleAnswer);
+            }
+        } catch (e) {
+            toast(`回答例生成に失敗: ${
+                String(e.message || e).slice(0, 100)
+            }`);
+        } finally { // Re-enable button
+            btn.disabled = false;
+            btn.innerHTML = '<span>💡</span><span>回答例を生成</span>';
+        }
+    });
+
+    el("closeExampleBtn") ?. addEventListener("click", () => {
+        hideExampleAnswer();
+    });
 
     setConn(!!state.apiEndpoint, state.apiEndpoint ? "設定OK" : "未接続");
 

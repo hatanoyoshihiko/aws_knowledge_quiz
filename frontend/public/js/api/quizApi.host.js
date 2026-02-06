@@ -116,14 +116,22 @@ export async function nextQuiz() {
             const previousQuizId = state.questionId || null;
             console.log(`[quiz] previous questionId: ${previousQuizId}`);
 
-            // Step 2: ポーリングで最新クイズを取得
-            const maxAttempts = 12; // 最大60秒（5秒×12回）
-            for (let i = 0; i < maxAttempts; i++) {
-                await new Promise(resolve => setTimeout(resolve, 5000)); // 5秒待機
+            // 生成開始時刻を記録（この時刻以降に作成されたクイズを探す）
+            const generationStartTime = new Date().toISOString();
+            console.log(`[quiz] generation started at: ${generationStartTime}`);
 
+            // Step 2: ポーリングで最新クイズを取得
+            const maxAttempts = 15; // 最大75秒（5秒×15回）
+            for (let i = 0; i < maxAttempts; i++) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                // 5秒待機
+
+                // minCreatedAtパラメータを追加して、生成開始時刻以降のクイズのみを取得
                 const currentUrl = `${
                     state.apiEndpoint
-                }/quiz/current`;
+                }/quiz/current?minCreatedAt=${
+                    encodeURIComponent(generationStartTime)
+                }`;
                 console.log(`[quiz] polling attempt ${
                     i + 1
                 }/${maxAttempts}`);
@@ -151,21 +159,22 @@ export async function nextQuiz() {
 
                     if (currentResp.ok && currentData ?. question) {
                         const q = currentData.question;
-                        // 新しいクイズが生成されたかチェック（IDが変わっている）
-                        if (q.questionId && q.title && q.body && q.questionId !== previousQuizId) {
+
+                        // 新しいクイズが取得できた（minCreatedAtフィルタで保証される）
+                        if (q.questionId && q.title && q.body) {
                             console.log(`[quiz] new quiz detected: ${
                                 q.questionId
-                            }`);
+                            } (created: ${
+                                q.createdAt
+                            })`);
                             clearGlobalMsg();
                             setConn(true, "接続OK");
                             setQuestionView(q);
                             toast("クイズを生成しました");
                             return q;
-                        } else if (q.questionId === previousQuizId) {
-                            console.log(`[quiz] still old quiz (${
-                                q.questionId
-                            }), continuing...`);
                         }
+                    } else if (currentResp.ok && currentData ?. status === "empty") { // まだ新しいクイズが反映されていない
+                        console.log(`[quiz] waiting for new quiz to be indexed...`);
                     }
                 } catch (pollError) {
                     console.warn(`[quiz] polling attempt ${
