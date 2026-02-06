@@ -197,8 +197,11 @@
           <textarea id="answer" rows="6" placeholder="回答を入力（Ctrl/⌘+Enterで採点、Ctrl/⌘+Kでここへフォーカス）"
             class="mt-3 w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-300"></textarea>
 
-          <div class="mt-3 text-xs text-slate-400">
-            音声入力はブラウザ機能（Web Speech API）を使用します。未対応の場合はテキスト入力で利用してください。
+          <div class="mt-2 flex items-center justify-between text-xs">
+            <span class="text-slate-400">音声入力はブラウザ機能（Web Speech API）を使用します。</span>
+            <span id="charCount" class="text-slate-400">
+              <span id="charCountCurrent">0</span> / 1000
+            </span>
           </div>
         </section>
 
