@@ -540,6 +540,107 @@ for (let i = 0; i < maxAttempts; i++) {
 - トンチを利かせたユーモアに富んだ文章
 - 必須要点の充足状況を明確に伝える
 
+## Bedrockトークン数設定
+
+各Lambda関数でのBedrock呼び出し時のMaxTokens設定を最適化しています。日本語は1文字あたり約2〜4トークン消費するため、出力文字数に応じて適切なトークン数を設定しています。
+
+### GetNextQuizFunction（クイズ生成）
+
+**設定箇所**: `backend/template.yaml` の `QuizPrompt` リソース
+
+**MaxTokens**: 3500
+- **理由**: 複雑なJSON構造（title、body、rubric全体、tags）で約3,500トークン必要
+- **出力内容**:
+  - title: 最大80字（約240トークン）
+  - body: 最大300字（約900トークン）
+  - rubric全体: 約1,500〜2,000トークン
+    - expectedAnswer: 最大400字（約1,200トークン）
+    - mustHavePoints: 4〜6個（各label≤60字、notes≤150字）
+    - niceToHavePoints: 0〜2個
+    - commonWrongClaims: 0〜2個
+    - scoringPolicy
+  - sourceSummary: 最大250字（約750トークン）
+  - tags配列: 約100トークン
+
+**Temperature**: 0.15（多様性と品質のバランス）
+
+**実装**:
+```yaml
+InferenceConfiguration:
+  Text:
+    MaxTokens: 3500
+    Temperature: 0.15
+```
+
+### JudgeAnswerFunction（回答判定）
+
+**設定箇所**: `backend/src/judge_answer/app.py` の `_call_bedrock_judge_json` 関数
+
+**MaxTokens**: 3000
+- **理由**: feedback（最大400字）+ nextHint（最大280字）+ JSON構造で約2,500トークン必要
+- **出力内容**:
+  - result: "correct" / "close" / "incorrect"（約5トークン）
+  - score: 0.0〜1.0（約5トークン）
+  - mustPointsMet: ["p1","p2","p3","p4"]（約20トークン）
+  - missingMustPoints: []（約5トークン）
+  - feedback: 最大400字（約1,200トークン）
+  - nextHint: 最大280字（約840トークン）
+  - JSON構造オーバーヘッド: 約200トークン
+  - 安全マージン: 約20〜30%
+
+**Temperature**: 0.05（判定の一貫性重視）
+
+**実装**:
+```python
+inference_config = {
+    "maxTokens": 3000,
+    "temperature": 0.05
+}
+if system_param is None:
+    return bedrock.converse_json(messages=messages, inferenceConfig=inference_config)
+return bedrock.converse_json(messages=messages, system=system_param, inferenceConfig=inference_config)
+```
+
+### GenerateExampleAnswerFunction（模範解答生成）
+
+**設定箇所**: `backend/src/generate_example_answer/app.py` の `_call_bedrock_generate_text` 関数
+
+**MaxTokens**: 2000
+- **理由**: 純粋なテキスト出力で最大400字（約1,200トークン）+ 安全マージン
+- **出力内容**:
+  - 模範回答テキスト: 最大400字（実際は200〜300字推奨）
+  - 400字 × 3トークン = 約1,200トークン
+  - 安全マージン: 約25〜50%
+
+**Temperature**: 0.15（適度な多様性）
+
+**実装**:
+```python
+inference_config = {
+    "maxTokens": 2000,
+    "temperature": 0.15
+}
+if system_param is None:
+    raw = bedrock.converse(messages=messages, inferenceConfig=inference_config)
+else:
+    raw = bedrock.converse(messages=messages, system=system_param, inferenceConfig=inference_config)
+```
+
+### トークン数設定の考え方
+
+1. **日本語のトークン消費量**: 1文字あたり約2〜4トークン（平均3トークンで計算）
+2. **JSON構造のオーバーヘッド**: 約200〜300トークン
+3. **安全マージン**: 出力が途中で切れないよう20〜50%の余裕を確保
+4. **Temperature設定**:
+   - 判定タスク（JudgeAnswer）: 0.05（一貫性重視）
+   - 生成タスク（GetNextQuiz、GenerateExampleAnswer）: 0.15（多様性と品質のバランス）
+
+### トークン数設定の効果
+
+- **出力の安定性向上**: 途中で切れるリスクを大幅に削減
+- **コスト最適化**: 必要十分なトークン数で無駄を削減
+- **品質向上**: 完全な出力により、JSON解析エラーやフィードバック不足を防止
+
 ## セキュリティ
 
 | 対象 | 対策 |
