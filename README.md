@@ -35,7 +35,7 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 
 3. **Bedrock Prompt Managementでクイズ生成**
    - プロンプト変数: category、level、avoid_duplicate_hint（最近15問）、question_style、style_guidance、source_context
-   - MaxTokens: 2400、Temperature: 0.15
+   - MaxTokens: 3500、Temperature: 0.15
    - JSON形式で出力（コードフェンス除去処理あり）
 
 4. **重複チェックと保存**
@@ -51,6 +51,7 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 **パフォーマンス設定**:
 - Lambda実行時間: 60秒、メモリ: 512MB
 - Bedrock接続タイムアウト: 5秒、読み取りタイムアウト: 25秒
+- MaxTokens: 3500、Temperature: 0.15
 
 ### JudgeAnswerFunction（回答採点）
 **役割**: ユーザーの回答を採点してフィードバックを提供
@@ -62,6 +63,7 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 2. **Bedrockでの採点**
    - SYSTEM_PROMPT: 採点者の役割とルールを定義
    - USER_PROMPT: 問題本文、rubric、ユーザー回答を含む
+   - MaxTokens: 3000、Temperature: 0.05（判定の一貫性重視）
    - 出力: result、score、mustPointsMet、missingMustPoints、feedback、nextHint
 
 3. **採点結果の検証**
@@ -128,6 +130,7 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 
 2. **Bedrockで回答例生成**
    - 問題本文、rubric（必須要点、加点要素）を含むプロンプトを構築
+   - MaxTokens: 2000、Temperature: 0.15
    - 100点を満たす模範回答を生成（200〜300字程度）
    - 必須要点をすべて含み、加点要素も考慮した回答
 
@@ -138,8 +141,9 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 **パフォーマンス設定**:
 - Lambda実行時間: 60秒、メモリ: 512MB
 - Bedrock接続タイムアウト: 5秒、読み取りタイムアウト: 25秒
+- MaxTokens: 2000、Temperature: 0.15
 
-## デプロイ方法
+**使用シーン**:
 
 ### 前準備
 
@@ -646,7 +650,7 @@ for (let i = 0; i < maxAttempts; i++) {
 
 ### クイズ生成（GetNextQuizFunction）
 - **モデル**: jp.anthropic.claude-sonnet-4-5-20250929-v1:0
-- **MaxTokens**: 2400（JSON完全出力を保証）
+- **MaxTokens**: 3500（複雑なJSON構造に対応）
 - **Temperature**: 0.15（多様性と品質のバランス）
 - **タイムアウト**: 接続5秒、読み取り25秒、リトライ1回
 - **プロンプト管理**: Bedrock Prompt Management使用
@@ -660,12 +664,20 @@ for (let i = 0; i < maxAttempts; i++) {
 
 ### 回答採点（JudgeAnswerFunction）
 - **モデル**: jp.anthropic.claude-sonnet-4-5-20250929-v1:0
+- **MaxTokens**: 3000（feedback + nextHint + JSON構造）
+- **Temperature**: 0.05（判定の一貫性重視）
 - **フィードバック最大長**: 400字
 - **採点基準**: rubric（mustHavePoints、niceToHavePoints、commonWrongClaims、scoringPolicy）
 - **プロンプト構成**:
   - SYSTEM_PROMPT: 採点者の役割とルール
   - USER_PROMPT: 問題本文、rubric、ユーザー回答
 - **出力形式**: JSON（result、score、mustPointsMet、missingMustPoints、feedback、nextHint）
+
+### 模範解答生成（GenerateExampleAnswerFunction）
+- **モデル**: jp.anthropic.claude-sonnet-4-5-20250929-v1:0
+- **MaxTokens**: 2000（模範回答テキスト400字 + 安全マージン）
+- **Temperature**: 0.15（適度な多様性）
+- **出力**: 100点満点の模範回答（200〜300字推奨）
 
 ### Guardrail設定（オプション）
 - **BedrockGuardrailIdentifier**: Guardrail ID（不適切なコンテンツをブロック）
@@ -701,7 +713,7 @@ for (let i = 0; i < maxAttempts; i++) {
 - **効果**: 同じクイズの繰り返しを大幅に削減、多様な問題を生成
 
 ### JSON出力の安定化
-- **MaxTokens**: 1200→2400（段階的に増加）
+- **MaxTokens**: 3500（複雑なJSON構造に十分対応）
 - **文字数制約の緩和**: body≤240字、expectedAnswer≤240字、sourceSummary≤160字
 - **JSON救済処理**: コードフェンス除去、外側オブジェクト抽出
 - **プロンプト改善**: 「必ず完全なJSONを出力」を強調
