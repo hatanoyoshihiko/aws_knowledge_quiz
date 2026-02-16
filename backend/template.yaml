@@ -206,7 +206,7 @@ Resources:
           TemplateType: "CHAT"
           InferenceConfiguration:
             Text:
-              MaxTokens: 2048
+              MaxTokens: 3500
               Temperature: 0.15
           TemplateConfiguration:
             Chat:

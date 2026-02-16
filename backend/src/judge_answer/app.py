@@ -154,9 +154,13 @@ def _call_bedrock_judge_json(bedrock: BedrockClient, *, system: str, user: str) 
 
     # Layer 実装（messages+system(list)）に合わせる
     try:
+        inference_config = {
+            "maxTokens": 3000,
+            "temperature": 0.05
+        }
         if system_param is None:
-            return bedrock.converse_json(messages=messages)
-        return bedrock.converse_json(messages=messages, system=system_param)
+            return bedrock.converse_json(messages=messages, inferenceConfig=inference_config)
+        return bedrock.converse_json(messages=messages, system=system_param, inferenceConfig=inference_config)
     except TypeError:
         # 旧実装へのフォールバック
         try:

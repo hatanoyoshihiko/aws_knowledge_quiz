@@ -102,10 +102,14 @@ def _call_bedrock_generate_text(bedrock: BedrockClient, *, system: str, user: st
         raise AttributeError("BedrockClient has no converse")
 
     try:
+        inference_config = {
+            "maxTokens": 2000,
+            "temperature": 0.15
+        }
         if system_param is None:
-            raw = bedrock.converse(messages=messages)
+            raw = bedrock.converse(messages=messages, inferenceConfig=inference_config)
         else:
-            raw = bedrock.converse(messages=messages, system=system_param)
+            raw = bedrock.converse(messages=messages, system=system_param, inferenceConfig=inference_config)
     except TypeError:
         raise AppError("BEDROCK_ERROR", "Bedrock API call failed", 500)
 
