@@ -1,6 +1,6 @@
-## UIが最新のクイズを取得する仕組み
+# UIが最新のクイズを取得する仕組み
 
-### バックエンド側（GetCurrentQuizFunction）
+## バックエンド側（GetCurrentQuizFunction）
 
 **役割**: DynamoDBから最新のクイズを取得
 
@@ -51,7 +51,7 @@ item = {
 
 この設計により、**O(1)で最新のクイズを取得**できます（Scanではなく効率的なQuery）。
 
-### フロントエンド側（Host UI / Team UI）
+## フロントエンド側（Host UI / Team UI）
 
 **ポーリング方式**:
 

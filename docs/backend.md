@@ -1,6 +1,6 @@
-## Lambda関数の処理概要
+# Lambda関数の処理概要
 
-### GetNextQuizFunction（クイズ生成）
+## GetNextQuizFunction（クイズ生成）
 
 **役割**: 新しいクイズを生成して出題
 
@@ -42,7 +42,7 @@
 - Bedrock接続タイムアウト: 5秒、読み取りタイムアウト: 25秒
 - MaxTokens: 3500、Temperature: 0.15
 
-### JudgeAnswerFunction（回答採点）
+## JudgeAnswerFunction（回答採点）
 
 **役割**: ユーザーの回答を採点してフィードバックを提供
 
@@ -81,7 +81,7 @@
 
 -**scoringPolicy**: 採点ポリシー（correct_threshold: 1.0、close_threshold: 0.8）
 
-### GetCurrentQuizFunction（現在クイズ取得）
+## GetCurrentQuizFunction（現在クイズ取得）
 
 **役割**: 現在出題中のクイズを取得
 
@@ -92,7 +92,7 @@
 
 **用途**: Host/Team両UIから15秒ごとにポーリング
 
-### GetScoresFunction（スコアボード取得）
+## GetScoresFunction（スコアボード取得）
 
 **役割**: 全チームのスコアボードを取得
 
@@ -102,7 +102,7 @@
 - スコア降順、更新日時降順でソート
 - チーム名、スコア、更新日時を返却
 
-### StartQuizGenerationFunction（クイズ生成開始）
+## StartQuizGenerationFunction（クイズ生成開始）
 
 **役割**: クイズ生成を非同期で開始
 
@@ -111,7 +111,7 @@
 - GetNextQuizFunctionを非同期で呼び出し
 - 即座にレスポンスを返却（生成完了を待たない）
 
-### SubmitScoreFunction（スコア送信）
+## SubmitScoreFunction（スコア送信）
 
 **役割**: 採点結果をスコアボードに反映
 
@@ -121,7 +121,7 @@
 - 初回回答の場合のみScoresTableにスコアを加算
 - 再評価の場合は履歴のみ更新（スコアは変更しない）
 
-### GetQuizByIdFunction（過去問取得）
+## GetQuizByIdFunction（過去問取得）
 
 **役割**: questionIdを指定して過去のクイズを取得
 
@@ -130,7 +130,7 @@
 - questionIdをキーにDynamoDBから問題を取得
 - 復習機能や過去問参照に使用
 
-### GenerateExampleAnswerFunction（回答例生成）
+## GenerateExampleAnswerFunction（回答例生成）
 
 **役割**: 100点満点の回答例を生成
 
