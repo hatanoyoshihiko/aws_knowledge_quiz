@@ -6,41 +6,18 @@
 
 **処理フロー**:
 
-1.**MCP検索クエリの決定的生成**
-
-- カテゴリ（security、networking、storage、serverless、well-architected）ごとに定義された部品（services、topics、angles）から組み合わせを生成
-- カーソルベースでインデックスを管理し、同じクエリの繰り返しを回避
-- クエリ空間サイズ = services数 × topics数 × angles数
-
-2.**AWS Knowledge MCP Serverからの情報取得**
-
-- 生成されたクエリでMCP検索を実行
-- 最大3件のスニペットを取得（SOURCE_SNIPPETS_MAX: 3）
-- 合計2200文字以内に制限（SOURCE_CONTEXT_MAX_CHARS: 2200）
-
-3.**Bedrock Prompt Managementでクイズ生成**
-
-- プロンプト変数: category、level、avoid_duplicate_hint（最近15問）、question_style、style_guidance、source_context
-- MaxTokens: 3500、Temperature: 0.15
-- JSON形式で出力（コードフェンス除去処理あり）
-
-4.**重複チェックと保存**
-
-- タイトル、本文、必須要点からハッシュ値を生成
-- DynamoDBに条件付き書き込み（重複時は失敗）
-- 成功時はカーソルを進める（次回は異なるクエリを使用）
-
-5.**リトライとタイムアウト**
-
-- MAX_MCP_REFRESH: 0（デフォルト、環境変数で変更可能）
-- 残り時間35秒未満で生成ループを停止
-- 重複時は503エラーを返し、クライアント側で再試行を促す
+1. MCP検索クエリの決定的生成（カーソルベース）
+2. AWS Knowledge MCP Serverからの情報取得
+3. Bedrock Prompt Managementでクイズ生成
+4. 重複チェックと保存（ハッシュ値による条件付き書き込み）
+5. カーソル更新（次回は異なるクエリを使用）
 
 **パフォーマンス設定**:
-
 - Lambda実行時間: 60秒、メモリ: 512MB
-- Bedrock接続タイムアウト: 5秒、読み取りタイムアウト: 25秒
-- MaxTokens: 3500、Temperature: 0.15
+- Bedrock: MaxTokens 3500、Temperature 0.15
+- MCP: 最大3件のスニペット、合計2200文字以内
+
+詳細は [クイズ生成の仕組み](./quiz.md) を参照してください。
 
 ## JudgeAnswerFunction（回答採点）
 

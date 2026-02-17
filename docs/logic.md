@@ -158,90 +158,35 @@ Bedrock は各 P について「満たしているか（met）」を判定し、
 
 ## クイズ生成フロー
 
-### 非同期クイズ生成（StartQuizGenerationFunction）
+クイズ生成は非同期で実行され、以下の2つのLambda関数で処理されます：
+
+### StartQuizGenerationFunction（非同期開始）
 
 **役割**: クイズ生成を非同期で開始し、即座にレスポンスを返却
 
-**処理フロー**:
-1. **Host Key認証**
-   - リクエストヘッダーの`X-Host-Key`を検証
-   - 環境変数`HOST_KEY`と一致しない場合は403エラー
+**処理**:
+1. Host Key認証
+2. パラメータ解析（category、level）
+3. GetNextQuizFunctionを非同期呼び出し
+4. 202 Acceptedを即座に返却
 
-2. **パラメータ解析**
-   - クエリパラメータから`category`と`level`を取得
-   - category: security、networking、storage、serverless、well-architected
-   - level: 100（基礎）、200（設計）、300（実装）、400（専門家）
+**利点**: UIのブロッキングを回避、タイムアウトリスクの軽減
 
-3. **非同期Lambda呼び出し**
-   - GetNextQuizFunctionを`InvocationType='Event'`（非同期）で呼び出し
-   - 環境変数`GET_NEXT_QUIZ_FUNCTION_NAME`から関数名を取得
-   - ペイロードにcategory、level、headers、requestContextを含める
+### GetNextQuizFunction（実際の生成処理）
 
-4. **即座にレスポンス返却**
-   - HTTPステータス: 202 Accepted
-   - メッセージ: "クイズ生成を開始しました。数秒後に最新のクイズが取得できます。"
-   - クライアント側は定期ポーリングで最新クイズを取得
+**役割**: バックグラウンドでクイズを生成
 
-**利点**:
-- UIのブロッキングを回避（30秒待たずに即座にレスポンス）
-- クイズ生成中も他の操作が可能
-- タイムアウトリスクの軽減
+**処理**:
+1. カーソル取得（カテゴリ×レベル）
+2. MCP検索クエリの生成
+3. AWS Knowledge MCP Serverから情報取得
+4. 最近20問のヒント取得
+5. Bedrock Prompt Managementでクイズ生成
+6. ハッシュ値による重複チェック
+7. DynamoDBに保存
+8. カーソル更新
 
-**エンドポイント**: `GET /quiz/generate?category={category}&level={level}`
-
-**レスポンス例**:
-```json
-{
-  "status": "generating",
-  "message": "クイズ生成を開始しました。数秒後に最新のクイズが取得できます。",
-  "category": "security",
-  "level": 200
-}
-```
-
-### 同期クイズ生成（GetNextQuizFunction）
-
-**役割**: 実際のクイズ生成処理を実行
-
-### 1. MCP検索クエリの決定的生成
-- カテゴリ（security、networking、storage、serverless、well-architected）ごとに定義された部品から組み合わせを生成
-- 部品: services（サービス名）、topics（トピック）、angles（観点）
-- カーソルベースでインデックスを管理し、同じクエリの繰り返しを回避
-- クエリ空間サイズ = services数 × topics数 × angles数
-- **クイズ生成可能数**:
-  - security: 10 × 9 × 5 = 450通り
-  - networking: 12 × 8 × 5 = 480通り
-  - storage: 8 × 8 × 5 = 320通り
-  - serverless: 10 × 9 × 5 = 450通り
-  - well-architected: 7 × 6 × 5 = 210通り
-  - **合計: 1,910通りの異なるMCP検索クエリ**
-  - QUESTION_STYLESが6種類あるため、理論上は **1,910 × 6 = 11,460通り** の異なるクイズが生成可能
-
-### 2. AWS Knowledge MCP Serverからの情報取得
-- 生成されたクエリでMCP検索を実行
-- 最大3件のスニペットを取得（SOURCE_SNIPPETS_MAX: 3）
-- 合計2200文字以内に制限（SOURCE_CONTEXT_MAX_CHARS: 2200）
-
-### 3. Bedrock Prompt Managementでクイズ生成
-- プロンプト変数:
-  - category: カテゴリ
-  - level: 難易度（100=基礎、200=設計、300=実装、400=専門家）
-  - avoid_duplicate_hint: 最近20問のヒント（タイトル、タグ、論点）
-  - question_style: 出題スタイル（使い分け、トレードオフ、誤り探し等）
-  - style_guidance: スタイル別の出題方針
-  - source_context: MCP検索結果
-- MaxTokens: 3500、Temperature: 0.15
-- JSON形式で出力（コードフェンス除去処理あり）
-
-### 4. 重複チェックと保存
-- タイトル、本文、必須要点からハッシュ値を生成
-- DynamoDBに条件付き書き込み（重複時は失敗）
-- 成功時はカーソルを進める（次回は異なるクエリを使用）
-
-### 5. リトライとタイムアウト
-- MAX_MCP_REFRESH: 0（デフォルト、環境変数で変更可能）
-- 残り時間35秒未満で生成ループを停止
-- 重複時は503エラーを返し、クライアント側で再試行を促す
+詳細は [クイズ生成の仕組み](./quiz.md) を参照してください。
 
 ## 回答判定フロー
 

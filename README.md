@@ -17,32 +17,19 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 - AI/ML: Amazon Bedrock（Claude Sonnet 4.5）, AWS Knowledge MCP Server
 - セキュリティ: Lambda Authorizer, CloudFrontカスタムヘッダー認証
 
-## クイズの出題内容を調整する場合
+## クイズ生成の仕組み
 
-### クイズ生成のカスタマイズ
+このアプリケーションは、AWS Knowledge MCP ServerとAmazon Bedrockを組み合わせて、多様なAWSクイズを自動生成します。
 
-ファイル: `backend/src/get_next_quiz/app.py`
+**クイズ生成可能数**: 理論上 **11,460通り** の異なるクイズが生成可能
+- 1,910通りの異なるMCP検索クエリ × 6種類の出題スタイル
 
-**QUERY_COMPONENTS（MCP検索クエリ生成用の部品）**:
-- カテゴリごとに定義（security、networking、storage、serverless、well-architected）
-- 各カテゴリに以下の部品を定義:
-  - **services**: AWSサービス名のリスト
-  - **topics**: トピック（機能、概念）のリスト
-  - **angles**: 観点（設計、実装、トラブルシューティング等）のリスト
-- 決定的な組み合わせでクエリを生成し、重複を回避
+**重複回避の仕組み**:
+1. カーソルベースのクエリローテーション（決定的な順序で全クエリを使用）
+2. ハッシュ値による完全一致の重複チェック
+3. 最近20問のヒントをBedrockに渡して類似問題を回避
 
-**QUESTION_STYLES（出題スタイル）**:
-- 使い分け: 複数の選択肢から最適なものを選ぶ問題
-- トレードオフ: メリット・デメリットを考慮する問題
-- 誤り探し: 誤った記述を見つける問題
-- 運用・障害対応: 実際の運用シナリオに基づく問題
-- 監査・コンプラ観点: セキュリティやコンプライアンスに関する問題
-- コスト最適化: コスト削減や最適化に関する問題
-
-**カスタマイズ方法**:
-1. QUERY_COMPONENTSに新しいサービスやトピックを追加
-2. QUESTION_STYLESに新しい出題スタイルを追加
-3. Bedrock Prompt Managementでプロンプトテンプレートを調整
+詳細は [クイズ生成の仕組み](./docs/quiz.md) を参照してください。
 
 ### 採点基準のカスタマイズ
 
@@ -74,7 +61,7 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
   - avoid_duplicate_hint: 最近15問のヒント（タイトル、タグ、論点）
   - question_style: 出題スタイル
   - style_guidance: スタイル別の出題方針
-  - source_context: MCP検索結果（最大1500文字）
+  - source_context: MCP検索結果（最大2200文字）
 
 ### 回答採点（JudgeAnswerFunction）
 - **モデル**: jp.anthropic.claude-sonnet-4-5-20250929-v1:0
@@ -100,13 +87,13 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 
 ### JSON出力の安定化
 - **文字数制約**:
-  - title: ≤55字
-  - body: ≤240字
-  - expectedAnswer: ≤240字
-  - sourceSummary: ≤160字
-  - mustHavePoints.label: ≤35字
-  - mustHavePoints.notes: ≤70字
-  - keywords_any: ≤10字
+  - title: ≤80字
+  - body: ≤300字
+  - expectedAnswer: ≤400字
+  - sourceSummary: ≤250字
+  - mustHavePoints.label: ≤60字
+  - mustHavePoints.notes: ≤150字
+  - keywords_any: ≤30字
 - **JSON救済処理**: コードフェンス除去、外側オブジェクト抽出
 
 ## パフォーマンスチューニング
@@ -120,15 +107,15 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 - **効果**: Lambda実行時間内でクイズ生成を完了、タイムアウトエラーを回避
 
 ### クイズ生成の多様性向上
-- **MAX_MCP_REFRESH**: 0→2（異なるMCPクエリで最大2回再試行）
-- **Temperature**: 0.05→0.15（出力の多様性向上）
+- **MAX_MCP_REFRESH**: 0（デフォルト、環境変数で変更可能）
+- **Temperature**: 0.15（出力の多様性向上）
 - **カーソルベースのクエリローテーション**: 決定的な組み合わせ生成で重複回避
-- **重複回避ヒント**: 最近15問（DUPLICATE_HINT_WINDOW: 15）のタイトル、タグ、論点を参照
+- **重複回避ヒント**: 最近20問（DUPLICATE_HINT_WINDOW: 20）のタイトル、タグ、論点を参照
 - **効果**: 同じクイズの繰り返しを大幅に削減、多様な問題を生成
 
 ### JSON出力の安定化
 - **MaxTokens**: 3500（複雑なJSON構造に十分対応）
-- **文字数制約の緩和**: body≤240字、expectedAnswer≤240字、sourceSummary≤160字
+- **文字数制約**: body≤300字、expectedAnswer≤400字、sourceSummary≤250字
 - **JSON救済処理**: コードフェンス除去、外側オブジェクト抽出
 - **プロンプト改善**: 「必ず完全なJSONを出力」を強調
 - **効果**: JSON解析エラーを大幅に削減、安定したクイズ生成
@@ -139,7 +126,7 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 
 ### MCP検索の最適化
 - **SOURCE_SNIPPETS_MAX**: 3（取得するスニペット数）
-- **SOURCE_CONTEXT_MAX_CHARS**: 1500（合計文字数制限）
+- **SOURCE_CONTEXT_MAX_CHARS**: 2200（合計文字数制限）
 - **効果**: 適切な情報量でクイズ生成、Bedrockのトークン消費を最適化
 
 ### 重複チェックの強化
@@ -151,9 +138,10 @@ AWS SAM + Python + バニラJavaScriptで構築されたSPAのAWSクイズ出題
 
 | ドキュメント名 | ファイル | 備考 |
 | --- | --- | --- |
-| デプロイ方法 | [deploy.md](./docs/deploy.md) | | 
+| デプロイ方法 | [deploy.md](./docs/deploy.md) | デプロイ手順とパラメータ | 
+| システムアーキテクチャ | [architecture.md](./docs/architecture.md) | 構成図とシーケンス図 |
+| クイズ生成の仕組み | [quiz.md](./docs/quiz.md) | クイズ生成アルゴリズムと重複回避 |
 | フロントエンド | [frontend.md](./docs/frontend.md) | フロントエンドの説明 |
 | バックエンド | [backend.md](./docs/backend.md) | バックエンド（Lambda)の説明 |
-| 主なロジック | [logic.md](./docs/logic.md) | クイズや採点アルゴリズム |
-| UIが最新のクイズを取得する仕組み | [get_current_quiz.md](./docs/get_current_quiz.md) | |
-| システム構成図 | [structure.md](./docs/structure.md) | |
+| 主なロジック | [logic.md](./docs/logic.md) | 採点アルゴリズムとデータフロー |
+| UIが最新のクイズを取得する仕組み | [get_current_quiz.md](./docs/get_current_quiz.md) | ポーリングの詳細 |
