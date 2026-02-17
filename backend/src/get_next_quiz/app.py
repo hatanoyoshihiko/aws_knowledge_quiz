@@ -565,9 +565,8 @@ def lambda_handler(event, context):
             )
 
             mcp_snippets = mcp.search(query=query, max_snippets=SOURCE_SNIPPETS_MAX)
-            snippets = [s.text for s in mcp_snippets]
 
-            source_context = _build_source_context(snippets)
+            source_context = _build_source_context([s.text for s in mcp_snippets])
 
             broke_for_time = False
             for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -676,8 +675,13 @@ def lambda_handler(event, context):
                         "Provider": "aws-knowledge-mcp",
                         "RetrievedAt": created_at,
                         "Snippets": [
-                            {"id": f"s{i}", "text": t, "source": "AWS (via MCP)", "url": None}
-                            for i, t in enumerate(snippets[:SOURCE_SNIPPETS_MAX], start=1)
+                            {
+                                "id": f"s{i}",
+                                "text": s.text,
+                                "source": s.source or "AWS (via MCP)",
+                                "url": s.url,
+                            }
+                            for i, s in enumerate(mcp_snippets[:SOURCE_SNIPPETS_MAX], start=1)
                         ],
                     },
                     "CreatedAt": created_at,
