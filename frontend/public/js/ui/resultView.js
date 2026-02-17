@@ -37,6 +37,11 @@ export function resetResult() {
     if (exampleText) {
         exampleText.textContent = "";
     }
+    const exampleSourceUrls = el("exampleSourceUrls");
+    if (exampleSourceUrls) {
+        exampleSourceUrls.innerHTML = "";
+        exampleSourceUrls.classList.add("hidden");
+    }
 }
 
 function normalizeP(p) {
@@ -160,9 +165,17 @@ export function wirePointsToggle() {
     });
 }
 
-export function showExampleAnswer(exampleText) {
+export function showExampleAnswer(exampleText, sourceUrls =[], sourceTitles =[]) {
     const wrap = el("exampleAnswerWrap");
     const text = el("exampleAnswerText");
+
+    console.log("[DEBUG] showExampleAnswer called with:", {
+        exampleText: exampleText ? exampleText.substring(0, 50) + "..." : null,
+        sourceUrls: sourceUrls,
+        sourceTitles: sourceTitles,
+        sourceUrlsLength: sourceUrls ? sourceUrls.length : 0,
+        sourceTitlesLength: sourceTitles ? sourceTitles.length : 0
+    });
 
     if (! wrap || ! text) 
         return;
@@ -170,12 +183,67 @@ export function showExampleAnswer(exampleText) {
 
 
     text.textContent = exampleText;
+
+    // Add source URLs if available
+    const sourcesContainer = el("exampleSourceUrls");
+    console.log("[DEBUG] sourcesContainer element:", sourcesContainer);
+
+    if (sourcesContainer && Array.isArray(sourceUrls) && sourceUrls.length > 0) {
+        console.log("[DEBUG] Creating links for URLs:", sourceUrls);
+        const linksHtml = sourceUrls.filter(url => url && typeof url === 'string').map((url, index) => { // Use title from API if available, otherwise extract from URL
+            const title = (sourceTitles && sourceTitles[index]) || extractTitleFromUrl(url);
+            return `<a href="${
+                escapeHtml(url)
+            }" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 hover:underline" title="${
+                escapeHtml(url)
+            }">📚 ${
+                escapeHtml(title)
+            }</a>`;
+        }).join('');
+
+        console.log("[DEBUG] Generated linksHtml:", linksHtml);
+        sourcesContainer.innerHTML = linksHtml;
+        sourcesContainer.classList.remove("hidden");
+    } else if (sourcesContainer) {
+        console.log("[DEBUG] No URLs to display or sourcesContainer not found");
+        sourcesContainer.innerHTML = "";
+        sourcesContainer.classList.add("hidden");
+    }
+
     wrap.classList.remove("hidden");
+}
+
+function extractTitleFromUrl(url) {
+    try {
+        const urlObj = new URL(url);
+        const pathname = urlObj.pathname;
+
+        // Remove trailing slash and file extension
+        let path = pathname.replace(/\/$/, '').replace(/\.html?$/, '');
+
+        // Get the last segment of the path
+        const segments = path.split('/').filter(s => s.length > 0);
+        const lastSegment = segments[segments.length - 1] || 'AWS Docs';
+
+        // Convert hyphens/underscores to spaces and capitalize
+        const title = lastSegment.replace(/[-_]/g, ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
+        return title || 'AWS公式ドキュメント';
+    } catch (e) {
+        return 'AWS公式ドキュメント';
+    }
 }
 
 export function hideExampleAnswer() {
     const wrap = el("exampleAnswerWrap");
     if (wrap) {
         wrap.classList.add("hidden");
+    }
+
+    // Clear source URLs
+    const sourcesContainer = el("exampleSourceUrls");
+    if (sourcesContainer) {
+        sourcesContainer.innerHTML = "";
+        sourcesContainer.classList.add("hidden");
     }
 }

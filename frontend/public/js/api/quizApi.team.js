@@ -25,6 +25,8 @@ function _ensureModeDefaults() { // state にプロパティが無くても問�
     if (!state.quizMode) 
         state.quizMode = "live";
     
+
+
     // "live" | "review"
 }
 
@@ -64,6 +66,7 @@ function _validateQuestionOrNull(data, {
             showGlobalMsg("API応答が不正です（question が不足）。");
         
 
+
         setConn(false, "エラー");
         return null;
     }
@@ -79,6 +82,7 @@ export function exitReviewMode({
     if (!silent) 
         toast("最新同期モードに戻りました");
     
+
 
 }
 
@@ -99,6 +103,7 @@ export async function currentQuiz({
         if (!silent) 
             toast("復習モード中です（更新で最新に戻ります）");
         
+
 
         return state.currentQuestion || null;
     }
@@ -124,6 +129,7 @@ export async function currentQuiz({
                 showGlobalMsg(msg);
             
 
+
             setConn(false, "エラー");
             return null;
         }
@@ -148,6 +154,7 @@ export async function currentQuiz({
             toast("最新のクイズに同期しました");
         
 
+
         return q;
     } catch (e) {
         if (isAbortError(e)) {
@@ -157,11 +164,13 @@ export async function currentQuiz({
                 }ms）。`);
             
 
+
             setConn(false, "タイムアウト");
         } else {
             if (!silent) 
                 showGlobalMsg("通信エラーです（詳細はConsoleログを確認してください）。");
             
+
 
             setConn(false, "エラー");
         }
@@ -183,6 +192,7 @@ export async function quizById(questionId, {
         if (!silent) 
             showGlobalMsg("questionId が不正です。");
         
+
 
         return null;
     }
@@ -210,6 +220,7 @@ export async function quizById(questionId, {
                 showGlobalMsg(msg);
             
 
+
             setConn(false, "エラー");
             return null;
         }
@@ -231,6 +242,7 @@ export async function quizById(questionId, {
             toast("復習クイズを表示しました（更新で最新に戻ります）");
         
 
+
         return q;
     } catch (e) {
         if (isAbortError(e)) {
@@ -240,11 +252,13 @@ export async function quizById(questionId, {
                 }ms）。`);
             
 
+
             setConn(false, "タイムアウト");
         } else {
             if (!silent) 
                 showGlobalMsg("通信エラーです（詳細はConsoleログを確認してください）。");
             
+
 
             setConn(false, "エラー");
         }
@@ -361,6 +375,7 @@ export async function generateExampleAnswer({
             showGlobalMsg("先にクイズを取得してください。");
         
 
+
         return null;
     }
 
@@ -381,6 +396,7 @@ export async function generateExampleAnswer({
                 showGlobalMsg(msg);
             
 
+
             setConn(false, "エラー");
             return null;
         }
@@ -390,16 +406,35 @@ export async function generateExampleAnswer({
                 showGlobalMsg("API応答が不正です（回答例が空です）。");
             
 
+
             setConn(false, "エラー");
             return null;
         }
+
+        console.log("[DEBUG] generateExampleAnswer API response:", {
+            hasExampleAnswer: !! data.exampleAnswer,
+            hasSourceUrls: !! data.sourceUrls,
+            hasSourceTitles: !! data.sourceTitles,
+            sourceUrlsType: typeof data.sourceUrls,
+            sourceUrlsIsArray: Array.isArray(data.sourceUrls),
+            sourceUrlsLength: data.sourceUrls ? data.sourceUrls.length : 0,
+            sourceTitlesLength: data.sourceTitles ? data.sourceTitles.length : 0,
+            sourceUrls: data.sourceUrls,
+            sourceTitles: data.sourceTitles,
+            fullData: data
+        });
 
         setConn(true, "接続OK");
         if (!silent) 
             toast("回答例を生成しました");
         
 
-        return data.exampleAnswer;
+
+        return {
+            exampleAnswer: data.exampleAnswer,
+            sourceUrls: data.sourceUrls || [],
+            sourceTitles: data.sourceTitles || []
+        };
     } catch (e) {
         if (isAbortError(e)) {
             if (!silent) 
@@ -408,11 +443,13 @@ export async function generateExampleAnswer({
                 }ms）。`);
             
 
+
             setConn(false, "タイムアウト");
         } else {
             if (!silent) 
                 showGlobalMsg("通信エラーです（詳細はConsoleログを確認してください）。");
             
+
 
             setConn(false, "エラー");
         }

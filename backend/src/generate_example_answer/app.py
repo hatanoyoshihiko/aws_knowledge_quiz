@@ -151,6 +151,19 @@ def lambda_handler(event, context):
 
         rubric = item["Rubric"]
         question_body = item["Question"]["Body"]
+        
+        # Extract source URLs and titles
+        source_urls = []
+        source_titles = []
+        source_context = item.get("SourceContext", {})
+        snippets = source_context.get("Snippets", [])
+        for snippet in snippets:
+            if isinstance(snippet, dict):
+                url = snippet.get("url")
+                title = snippet.get("title")
+                if url and isinstance(url, str):
+                    source_urls.append(url)
+                    source_titles.append(title if title and isinstance(title, str) else None)
 
         # Extract points with full details
         must_points = _extract_points(rubric, "mustHavePoints")
@@ -186,6 +199,8 @@ def lambda_handler(event, context):
             {
                 "exampleAnswer": example_answer,
                 "questionId": question_hash,
+                "sourceUrls": source_urls,
+                "sourceTitles": source_titles,
             },
         )
 

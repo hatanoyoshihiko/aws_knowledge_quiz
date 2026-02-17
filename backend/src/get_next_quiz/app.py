@@ -680,6 +680,7 @@ def lambda_handler(event, context):
                                 "text": s.text,
                                 "source": s.source or "AWS (via MCP)",
                                 "url": s.url,
+                                "title": s.title,
                             }
                             for i, s in enumerate(mcp_snippets[:SOURCE_SNIPPETS_MAX], start=1)
                         ],

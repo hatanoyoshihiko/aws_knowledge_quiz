@@ -31,6 +31,7 @@ class McpSnippet:
     text: str
     source: str | None = None
     url: str | None = None
+    title: str | None = None
 
 
 class McpClientError(RuntimeError):
@@ -75,6 +76,7 @@ class McpClient:
         search_args = self._build_search_args(query)
         search_res = self._call_tool("aws___search_documentation", search_args)
         urls = self._extract_urls(search_res)
+        url_titles = self._extract_url_titles(search_res)  # タイトルマッピングを取得
         urls = urls[:SEARCH_TOP_K]
 
         # 2) recommend（削減：デフォルトOFF）
@@ -82,6 +84,8 @@ class McpClient:
             for u in urls[: min(RECOMMEND_TOP_K, len(urls))]:
                 rec_args = self._build_recommend_args(u)
                 rec_res = self._call_tool("aws___recommend", rec_args)
+                rec_url_titles = self._extract_url_titles(rec_res)
+                url_titles.update(rec_url_titles)
                 for ru in self._extract_urls(rec_res):
                     if ru not in urls:
                         urls.append(ru)
@@ -105,6 +109,7 @@ class McpClient:
                     text=self._trim(md_text, SNIPPET_MAX_CHARS),
                     source="aws-knowledge-mcp",
                     url=u,
+                    title=url_titles.get(u),  # タイトルを追加
                 )
             )
 
@@ -295,6 +300,56 @@ class McpClient:
             seen.add(u)
             dedup.append(u)
         return dedup
+
+    def _extract_url_titles(self, tool_result: Dict[str, Any]) -> Dict[str, str]:
+        """Extract URL to title mapping from MCP response"""
+        if tool_result.get("isError") is True:
+            return {}
+
+        url_titles: Dict[str, str] = {}
+        
+        # Try structuredContent first
+        sc = tool_result.get("structuredContent")
+        if isinstance(sc, dict):
+            url_titles.update(self._url_titles_from_any(sc))
+
+        # Try content array
+        content = tool_result.get("content", [])
+        if isinstance(content, list):
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") != "text":
+                    continue
+                t = item.get("text")
+                if not isinstance(t, str) or not t.strip():
+                    continue
+                parsed = self._maybe_json(t)
+                if parsed is not None:
+                    url_titles.update(self._url_titles_from_any(parsed))
+        
+        return url_titles
+
+    def _url_titles_from_any(self, obj: Any) -> Dict[str, str]:
+        """Recursively extract URL-title pairs from nested structure"""
+        url_titles: Dict[str, str] = {}
+        
+        if isinstance(obj, dict):
+            # Check if this dict has both url and title
+            url = obj.get("url") or obj.get("document_url") or obj.get("documentUrl")
+            title = obj.get("title")
+            if url and title and isinstance(url, str) and isinstance(title, str):
+                url_titles[url.strip()] = title.strip()
+            
+            # Recurse into all values
+            for v in obj.values():
+                url_titles.update(self._url_titles_from_any(v))
+        
+        elif isinstance(obj, list):
+            for item in obj:
+                url_titles.update(self._url_titles_from_any(item))
+        
+        return url_titles
 
     def _urls_from_any(self, obj: Any) -> List[str]:
         urls: List[str] = []

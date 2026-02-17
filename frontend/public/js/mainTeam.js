@@ -540,11 +540,24 @@ window.addEventListener("DOMContentLoaded", async () => { // state 初期化（�
         btn.innerHTML = '<span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-emerald-600 border-t-emerald-200"></span><span>生成中...</span>';
 
         try {
-            const exampleAnswer = await quizApi.generateExampleAnswer();
-            if (exampleAnswer) {
-                showExampleAnswer(exampleAnswer);
+            const result = await quizApi.generateExampleAnswer();
+            console.log("[DEBUG] mainTeam.js: generateExampleAnswer result:", result);
+            console.log("[DEBUG] mainTeam.js: result type:", typeof result);
+            console.log("[DEBUG] mainTeam.js: result.exampleAnswer:", result ? result.exampleAnswer : null);
+            console.log("[DEBUG] mainTeam.js: result.sourceUrls:", result ? result.sourceUrls : null);
+
+            if (result && result.exampleAnswer) {
+                console.log("[DEBUG] mainTeam.js: calling showExampleAnswer with:", {
+                    exampleAnswer: result.exampleAnswer.substring(0, 50) + "...",
+                    sourceUrls: result.sourceUrls,
+                    sourceTitles: result.sourceTitles
+                });
+                showExampleAnswer(result.exampleAnswer, result.sourceUrls, result.sourceTitles);
+            } else {
+                console.log("[DEBUG] mainTeam.js: result is invalid:", result);
             }
         } catch (e) {
+            console.error("[DEBUG] mainTeam.js: error:", e);
             toast(`回答例生成に失敗: ${
                 String(e.message || e).slice(0, 100)
             }`);
