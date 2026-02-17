@@ -1,6 +1,6 @@
-## デプロイ方法
+# デプロイ方法
 
-### 前準備
+## 前準備
 
 - リポジトリのクローン
 
@@ -26,7 +26,7 @@ exportAPI_HEADER_VALUE=YOUR_SECRET_HEADER_VALUE
 
 ```
 
-### バックエンドのデプロイ
+## バックエンドのデプロイ
 
 - CloudFrontのURLを変数として格納する
 
@@ -126,7 +126,7 @@ echo"ApiGatewayOriginPath=$API_ORIGIN_PATH"
 
 ```
 
-### フロントエンドのデプロイ
+## フロントエンドのデプロイ
 
 - この時点ではまだコンテンツファイルはアップロードしません。
 
@@ -189,6 +189,6 @@ awss3syncpublic"s3://$BUCKET_NAME/"--delete
 
 ```
 
-### 動作確認
+## 動作確認
 
 `echo "https://$CLOUDFRONT_URL"`
