@@ -42,8 +42,8 @@
 | QUIZ_TABLE_NAME | クイズテーブル名 | （自動生成） |
 | MAX_ATTEMPTS | 最大試行回数 | 1 |
 | MAX_MCP_REFRESH | MCP再試行回数 | 0 |
-| DUPLICATE_HINT_WINDOW | 重複回避ウィンドウ | 15 |
-| SOURCE_CONTEXT_MAX_CHARS | MCP最大文字数 | 1500 |
+| DUPLICATE_HINT_WINDOW | 重複回避ウィンドウ | 20 |
+| SOURCE_CONTEXT_MAX_CHARS | MCP最大文字数 | 2200 |
 | SOURCE_SNIPPETS_MAX | MCP最大スニペット数 | 3 |
 | MCP_ENDPOINT | MCP Server URL | https://knowledge-mcp.global.api.aws |
 | HOST_KEY | Host認証キー | （デプロイ時指定） |
@@ -208,21 +208,29 @@ Bedrock は各 P について「満たしているか（met）」を判定し、
 - 部品: services（サービス名）、topics（トピック）、angles（観点）
 - カーソルベースでインデックスを管理し、同じクエリの繰り返しを回避
 - クエリ空間サイズ = services数 × topics数 × angles数
+- **クイズ生成可能数**:
+  - security: 10 × 9 × 5 = 450通り
+  - networking: 12 × 8 × 5 = 480通り
+  - storage: 8 × 8 × 5 = 320通り
+  - serverless: 10 × 9 × 5 = 450通り
+  - well-architected: 7 × 6 × 5 = 210通り
+  - **合計: 1,910通りの異なるMCP検索クエリ**
+  - QUESTION_STYLESが6種類あるため、理論上は **1,910 × 6 = 11,460通り** の異なるクイズが生成可能
 
 ### 2. AWS Knowledge MCP Serverからの情報取得
 - 生成されたクエリでMCP検索を実行
 - 最大3件のスニペットを取得（SOURCE_SNIPPETS_MAX: 3）
-- 合計1500文字以内に制限（SOURCE_CONTEXT_MAX_CHARS: 1500）
+- 合計2200文字以内に制限（SOURCE_CONTEXT_MAX_CHARS: 2200）
 
 ### 3. Bedrock Prompt Managementでクイズ生成
 - プロンプト変数:
   - category: カテゴリ
   - level: 難易度（100=基礎、200=設計、300=実装、400=専門家）
-  - avoid_duplicate_hint: 最近15問のヒント（タイトル、タグ、論点）
+  - avoid_duplicate_hint: 最近20問のヒント（タイトル、タグ、論点）
   - question_style: 出題スタイル（使い分け、トレードオフ、誤り探し等）
   - style_guidance: スタイル別の出題方針
   - source_context: MCP検索結果
-- MaxTokens: 2400、Temperature: 0.15
+- MaxTokens: 3500、Temperature: 0.15
 - JSON形式で出力（コードフェンス除去処理あり）
 
 ### 4. 重複チェックと保存
@@ -231,7 +239,7 @@ Bedrock は各 P について「満たしているか（met）」を判定し、
 - 成功時はカーソルを進める（次回は異なるクエリを使用）
 
 ### 5. リトライとタイムアウト
-- MAX_MCP_REFRESH: 2（異なるMCPクエリで最大2回再試行）
+- MAX_MCP_REFRESH: 0（デフォルト、環境変数で変更可能）
 - 残り時間35秒未満で生成ループを停止
 - 重複時は503エラーを返し、クライアント側で再試行を促す
 
@@ -518,21 +526,21 @@ for (let i = 0; i < maxAttempts; i++) {
 - 残り時間チェック: 35秒未満で生成ループを停止
 
 ### クイズ生成の多様性
-- MAX_MCP_REFRESH: 2（異なるMCPクエリで再試行）
+- MAX_MCP_REFRESH: 0（デフォルト、環境変数で変更可能）
 - Temperature: 0.15（多様性と品質のバランス）
 - カーソルベースのクエリローテーション
-- 重複回避ヒント: 最近15問（DUPLICATE_HINT_WINDOW: 15）
+- 重複回避ヒント: 最近20問（DUPLICATE_HINT_WINDOW: 20）
 
 ### JSON出力の安定化
-- MaxTokens: 2400（完全なJSON出力を保証）
+- MaxTokens: 3500（完全なJSON出力を保証）
 - 文字数制約:
-  - title: ≤55字
-  - body: ≤240字
-  - expectedAnswer: ≤240字
-  - sourceSummary: ≤160字
-  - mustHavePoints.label: ≤35字
-  - mustHavePoints.notes: ≤70字
-  - keywords_any: ≤10字
+  - title: ≤80字
+  - body: ≤300字
+  - expectedAnswer: ≤400字
+  - sourceSummary: ≤250字
+  - mustHavePoints.label: ≤60字
+  - mustHavePoints.notes: ≤150字
+  - keywords_any: ≤30字
 - JSON救済処理: コードフェンス除去、外側オブジェクト抽出
 
 ### フィードバック

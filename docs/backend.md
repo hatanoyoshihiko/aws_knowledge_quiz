@@ -16,7 +16,7 @@
 
 - 生成されたクエリでMCP検索を実行
 - 最大3件のスニペットを取得（SOURCE_SNIPPETS_MAX: 3）
-- 合計1500文字以内に制限（SOURCE_CONTEXT_MAX_CHARS: 1500）
+- 合計2200文字以内に制限（SOURCE_CONTEXT_MAX_CHARS: 2200）
 
 3.**Bedrock Prompt Managementでクイズ生成**
 
@@ -32,7 +32,7 @@
 
 5.**リトライとタイムアウト**
 
-- MAX_MCP_REFRESH: 2（異なるMCPクエリで最大2回再試行）
+- MAX_MCP_REFRESH: 0（デフォルト、環境変数で変更可能）
 - 残り時間35秒未満で生成ループを停止
 - 重複時は503エラーを返し、クライアント側で再試行を促す
 
