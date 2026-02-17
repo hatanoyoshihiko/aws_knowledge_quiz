@@ -29,3 +29,7 @@ MCP_API_KEY = env("MCP_API_KEY", "")
 # Keep it out of frontend assets. Set via SAM parameter HostKey.
 HOST_KEY = env("HOST_KEY", "")
 LOG_LEVEL = env("LOG_LEVEL", "INFO")
+
+# Bedrock inference config
+BEDROCK_MAX_TOKENS_JUDGE = int(env("BEDROCK_MAX_TOKENS_JUDGE", "3000"))
+BEDROCK_MAX_TOKENS_EXAMPLE = int(env("BEDROCK_MAX_TOKENS_EXAMPLE", "2000"))

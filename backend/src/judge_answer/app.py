@@ -7,7 +7,7 @@ from decimal import Decimal
 import boto3
 
 from common.bedrock import BedrockClient
-from common.config import BEDROCK_MODEL_ID, BEDROCK_GUARDRAIL_IDENTIFIER, BEDROCK_GUARDRAIL_VERSION, QUIZ_TABLE_NAME
+from common.config import BEDROCK_MODEL_ID, BEDROCK_GUARDRAIL_IDENTIFIER, BEDROCK_GUARDRAIL_VERSION, QUIZ_TABLE_NAME, BEDROCK_MAX_TOKENS_JUDGE
 from common.ddb import QuizRepo
 from common.errors import AppError, ParseError, SchemaError, SemanticError
 from common.schema import LIMITS
@@ -155,7 +155,7 @@ def _call_bedrock_judge_json(bedrock: BedrockClient, *, system: str, user: str) 
     # Layer 実装（messages+system(list)）に合わせる
     try:
         inference_config = {
-            "maxTokens": 3000,
+            "maxTokens": BEDROCK_MAX_TOKENS_JUDGE,
             "temperature": 0.05
         }
         if system_param is None:

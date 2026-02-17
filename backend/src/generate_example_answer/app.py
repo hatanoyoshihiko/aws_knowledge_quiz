@@ -7,7 +7,7 @@ from decimal import Decimal
 import boto3
 
 from common.bedrock import BedrockClient
-from common.config import BEDROCK_MODEL_ID, BEDROCK_GUARDRAIL_IDENTIFIER, BEDROCK_GUARDRAIL_VERSION, QUIZ_TABLE_NAME
+from common.config import BEDROCK_MODEL_ID, BEDROCK_GUARDRAIL_IDENTIFIER, BEDROCK_GUARDRAIL_VERSION, QUIZ_TABLE_NAME, BEDROCK_MAX_TOKENS_EXAMPLE
 from common.ddb import QuizRepo
 from common.errors import AppError
 
@@ -103,7 +103,7 @@ def _call_bedrock_generate_text(bedrock: BedrockClient, *, system: str, user: st
 
     try:
         inference_config = {
-            "maxTokens": 2000,
+            "maxTokens": BEDROCK_MAX_TOKENS_EXAMPLE,
             "temperature": 0.15
         }
         if system_param is None:
