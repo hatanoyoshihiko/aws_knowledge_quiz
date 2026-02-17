@@ -26,27 +26,16 @@
 **DynamoDB設計のポイント**:
 
 ```python
-
 # クイズ保存時にGSI用の属性を設定
-
 item = {
-
     "QuestionHash": qhash,           # Primary Key
-
     "GSI1PK": "RECENT",              # GSI Partition Key（固定値）
-
     "GSI1SK": created_at,            # GSI Sort Key（ISO 8601形式の日時）
-
     "Question": {"Title": ..., "Body": ...},
-
     "Rubric": {...},
-
     "CreatedAt": created_at,
-
     ...
-
 }
-
 ```
 
 この設計により、**O(1)で最新のクイズを取得**できます（Scanではなく効率的なQuery）。
@@ -62,88 +51,50 @@ item = {
 **実装例（mainTeam.js）**:
 
 ```javascript
+const POLL_MS = 15000; // 15秒
 
-constPOLL_MS=15000;// 15秒
-
-
-asyncfunction_poll() {
-
-    constfn=_getCurrentQuizFn();
-
+async function _poll() {
+    const fn = _getCurrentQuizFn();
     if (!fn) return;
-
-  
-
+    
     // 復習モード中はポーリングしない
-
     if ((state.quizMode || "live") === "review") return;
-
-  
-
+    
     try {
-
-        awaitfn({silent:true});// 静かに同期
-
+        await fn({silent: true}); // 静かに同期
     } catch (_) {
-
         // ポーリングでは失敗しても無視
-
     }
-
 }
-
 
 // 初回同期 + 定期ポーリング開始
-
 if (currentFn) {
-
-    awaitcurrentFn({silent:true, force:true});
-
+    await currentFn({silent: true, force: true});
     setInterval(_poll, POLL_MS);
-
 }
-
 ```
 
 **重複チェック**:
 
 ```javascript
-
 // quizApi.host.js - クイズ生成後のポーリング
+const previousQuizId = state.questionId || null;
 
-constpreviousQuizId=state.questionId||null;
-
-
-for (leti=0;i < maxAttempts;i++) {
-
-    await new Promise(resolve=>setTimeout(resolve, 5000));
-
-  
-
-    constcurrentData=awaitfetchCurrentQuiz();
-
-  
-
+for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
+    const currentData = await fetchCurrentQuiz();
+    
     if (currentData?.question) {
-
-        constq=currentData.question;
-
+        const q = currentData.question;
         // 新しいクイズが生成されたかチェック（IDが変わっている）
-
         if (q.questionId && q.questionId !== previousQuizId) {
-
             console.log(`[quiz] new quiz detected: ${q.questionId}`);
-
             setQuestionView(q);
-
-            returnq;
-
+            return q;
         }
-
     }
-
 }
-
 ```
 
 **同期の流れ**:
