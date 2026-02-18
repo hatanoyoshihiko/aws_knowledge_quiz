@@ -20,7 +20,7 @@ export API_HEADER_VALUE=YOUR_SECRET_HEADER_VALUE
 
 ## デプロイ順序
 
-このアプリケーションは以下の順序でデプロイします：
+このアプリケーションは以下の順序でデプロイ：
 
 1. **フロントエンド初回デプロイ** → CloudFront URLを取得
 2. **バックエンドデプロイ** → FrontendOriginにCloudFront URLを指定、API Gateway URLを取得
@@ -29,7 +29,7 @@ export API_HEADER_VALUE=YOUR_SECRET_HEADER_VALUE
 
 ## 1. フロントエンド初回デプロイ
 
-まずフロントエンドをデプロイしてCloudFront URLを取得します。
+フロントエンドをデプロイしてCloudFront URLを取得。
 
 ```bash
 cd frontend
@@ -41,7 +41,7 @@ sam deploy \
   --capabilities CAPABILITY_IAM
 ```
 
-CloudFront URLを変数として格納します：
+CloudFront URLを変数として格納：
 
 ```bash
 CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
@@ -102,7 +102,7 @@ sam deploy \
     BedrockGuardrailVersion=1
 ```
 
-API Gateway情報を変数として格納します：
+API Gateway情報を変数として格納：
 
 ```bash
 API_ENDPOINT=$(aws cloudformation describe-stacks \
@@ -134,7 +134,7 @@ sam deploy \
 
 ## 4. 静的ファイルアップロード
 
-フロントエンド用S3バケット名を取得してファイルをアップロードします：
+フロントエンド用S3バケット名を取得してファイルをアップロード：
 
 ```bash
 BUCKET_NAME=$(aws cloudformation describe-stacks \
@@ -151,7 +151,7 @@ aws s3 sync public "s3://$BUCKET_NAME/" --delete
 
 ## 動作確認
 
-デプロイが完了したら、CloudFront URLにアクセスしてアプリケーションを確認します：
+デプロイ完了後、CloudFront URLにアクセスしてアプリケーションを確認：
 
 ```bash
 echo "https://$CLOUDFRONT_URL"

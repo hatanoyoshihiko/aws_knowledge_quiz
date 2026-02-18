@@ -6,22 +6,19 @@
 
 **処理フロー**:
 
-1.**GSI_Recent（Global Secondary Index）からクエリ**
+1. **GSI_Recent（Global Secondary Index）からクエリ**:
+   - GSI1PK = "RECENT" で全クイズを対象にGSI1SK（CreatedAt）で自動的にソート
+   - ScanIndexForward = False で降順（新しい順）に
+   - Limit = 1 で先頭1件（最新）のみ取得
 
-- GSI1PK = "RECENT" で全クイズを対象にGSI1SK（CreatedAt）で自動的にソート
-- ScanIndexForward = False で降順（新しい順）に
-- Limit = 1 で先頭1件（最新）のみ取得
+2. **クイズ情報の整形**:
+   - questionId（QuestionHash）
+   - title、body、category、level、createdAt
+   - rubric（採点基準）は含めない（公開情報のみ）
 
-2.**クイズ情報の整形**
-
-- questionId（QuestionHash）
-- title、body、category、level、createdAt
-- rubric（採点基準）は含めない（公開情報のみ）
-
-3.**レスポンス返却**
-
-- クイズが存在する場合: `{"question": {...}}`
-- クイズが存在しない場合: `{"status": "empty", "message": "まだクイズが出題されていません"}`
+3. **レスポンス返却**:
+   - クイズが存在する場合: `{"question": {...}}`
+   - クイズが存在しない場合: `{"status": "empty", "message": "まだクイズが出題されていません"}`
 
 **DynamoDB設計のポイント**:
 
@@ -38,7 +35,7 @@ item = {
 }
 ```
 
-この設計により、**O(1)で最新のクイズを取得**できます（Scanではなく効率的なQuery）。
+この設計により、**O(1)で最新のクイズを取得**（Scanではなく効率的なQuery）。
 
 ## フロントエンド側（Host UI / Team UI）
 
@@ -108,7 +105,6 @@ for (let i = 0; i < maxAttempts; i++) {
 7. questionIdが変わっていれば画面更新
 
 **利点**:
-
 - リアルタイム性: 最大15秒の遅延で全クライアントが同期
 - シンプル: WebSocketやServer-Sent Eventsが不要
 - スケーラブル: クライアント数が増えてもバックエンドの負荷は一定

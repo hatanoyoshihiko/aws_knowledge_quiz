@@ -5,9 +5,8 @@
 **役割**: 新しいクイズを生成して出題
 
 **処理フロー**:
-
 1. MCP検索クエリの決定的生成（カーソルベース）
-2. AWS Knowledge MCP Serverからの情報取得
+2. AWS Knowledge MCP Serverから情報取得
 3. Bedrock Prompt Managementでクイズ生成
 4. 重複チェックと保存（ハッシュ値による条件付き書き込み）
 5. カーソル更新（次回は異なるクエリを使用）
@@ -17,7 +16,7 @@
 - Bedrock: MaxTokens 3500、Temperature 0.15
 - MCP: 最大3件のスニペット、合計2200文字以内
 
-詳細は [クイズ生成の仕組み](./quiz.md) を参照してください。
+詳細は [クイズ生成の仕組み](./quiz.md) を参照。
 
 ## JudgeAnswerFunction（回答採点）
 
@@ -25,38 +24,29 @@
 
 **処理フロー**:
 
-1.**問題情報の取得**
+1. **問題情報の取得**: questionIdでDynamoDBから問題とrubric（採点基準）を取得
 
-- questionIdでDynamoDBから問題とrubric（採点基準）を取得
+2. **Bedrockでの採点**:
+   - SYSTEM_PROMPT: 採点者の役割とルールを定義
+   - USER_PROMPT: 問題本文、rubric、ユーザー回答を含む
+   - MaxTokens: 3000、Temperature: 0.05（判定の一貫性重視）
+   - 出力: result、score、mustPointsMet、missingMustPoints、feedback、nextHint
 
-2.**Bedrockでの採点**
+3. **採点結果の検証**:
+   - mustPointsMetとmissingMustPointsの整合性チェック
+   - スコアの範囲チェック（0.0〜1.0）
+   - scoringPolicyとの整合性確認
 
-- SYSTEM_PROMPT: 採点者の役割とルールを定義
-- USER_PROMPT: 問題本文、rubric、ユーザー回答を含む
-- MaxTokens: 3000、Temperature: 0.05（判定の一貫性重視）
-- 出力: result、score、mustPointsMet、missingMustPoints、feedback、nextHint
-
-3.**採点結果の検証**
-
-- mustPointsMetとmissingMustPointsの整合性チェック
-- スコアの範囲チェック（0.0〜1.0）
-- scoringPolicyとの整合性確認
-
-4.**スコア反映**
-
-- 初回回答: ScoresTableにスコアを加算
-- 再評価: AnswerHistoryTableのみ更新（スコアは変更しない）
-- 回答履歴に詳細情報を記録（result、score、feedback、試行回数）
+4. **スコア反映**:
+   - 初回回答: ScoresTableにスコアを加算
+   - 再評価: AnswerHistoryTableのみ更新（スコアは変更しない）
+   - 回答履歴に詳細情報を記録（result、score、feedback、試行回数）
 
 **rubric（採点基準）の構造**:
-
--**mustHavePoints**: 必須要点（通常4個）- 正解判定に必須
-
--**niceToHavePoints**: 加点要素（0〜1個）- より深い理解を示す内容
-
--**commonWrongClaims**: よくある誤解（0〜1個）- 含まれると減点
-
--**scoringPolicy**: 採点ポリシー（correct_threshold: 1.0、close_threshold: 0.8）
+- **mustHavePoints**: 必須要点（通常4個）- 正解判定に必須
+- **niceToHavePoints**: 加点要素（0〜1個）- より深い理解を示す内容
+- **commonWrongClaims**: よくある誤解（0〜1個）- 含まれると減点
+- **scoringPolicy**: 採点ポリシー（correct_threshold: 1.0、close_threshold: 0.8）
 
 ## GetCurrentQuizFunction（現在クイズ取得）
 
@@ -113,24 +103,17 @@
 
 **処理フロー**:
 
-1.**問題情報の取得**
+1. **問題情報の取得**: questionIdでDynamoDBから問題とrubric（採点基準）を取得
 
-- questionIdでDynamoDBから問題とrubric（採点基準）を取得
+2. **Bedrockで回答例生成**:
+   - 問題本文、rubric（必須要点、加点要素）を含むプロンプトを構築
+   - MaxTokens: 2000、Temperature: 0.15
+   - 100点を満たす模範回答を生成（200〜300字程度）
+   - 必須要点をすべて含み、加点要素も考慮した回答
 
-2.**Bedrockで回答例生成**
-
-- 問題本文、rubric（必須要点、加点要素）を含むプロンプトを構築
-- MaxTokens: 2000、Temperature: 0.15
-- 100点を満たす模範回答を生成（200〜300字程度）
-- 必須要点をすべて含み、加点要素も考慮した回答
-
-3.**回答例の返却**
-
-- 生成された回答例をJSON形式で返却
-- Team UIで「回答例を生成」ボタン押下後に表示
+3. **回答例の返却**: 生成された回答例をJSON形式で返却、Team UIで「回答例を生成」ボタン押下後に表示
 
 **パフォーマンス設定**:
-
 - Lambda実行時間: 60秒、メモリ: 512MB
 - Bedrock接続タイムアウト: 5秒、読み取りタイムアウト: 25秒
 - MaxTokens: 2000、Temperature: 0.15
