@@ -10,7 +10,7 @@ Parameters:
 
   BedrockModelId:
     Type: String
-    Default: jp.anthropic.claude-sonnet-4-5-20250929-v1:0
+    Default: jp.anthropic.claude-sonnet-4-6
 
   BedrockGuardrailIdentifier:
     Type: String

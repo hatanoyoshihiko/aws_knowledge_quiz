@@ -75,7 +75,8 @@ sam deploy \
     StageName=prod \
     FrontendOrigin="$CLOUDFRONT_URL" \
     CloudFrontToApiHeaderValue="$API_HEADER_VALUE" \
-    HostKey="$HOST_KEY"
+    HostKey="$HOST_KEY" \
+    BedrockModelId=jp.anthropic.claude-sonnet-4-6
 ```
 
 デプロイオプション：
@@ -83,8 +84,10 @@ sam deploy \
 - FrontendOrigin: CloudFrontのURL（CORS設定用）
 - CloudFrontToApiHeaderValue: CloudFrontからAPI Gatewayへの認証用ヘッダー値（任意の秘密文字列）
 - HostKey: 出題者側UIで入力するキー（任意の値、例: 123456789）
-- BedrockGuardrailIdentifier: Bedrock Guardrail ID（オプション）
-- BedrockGuardrailVersion: Bedrock Guardrail Version（オプション、デフォルト: DRAFT）
+- BedrockModelId: モデルID　（例：jp.anthropic.claude-sonnet-4-6）
+- オプション
+  - BedrockGuardrailIdentifier: Bedrock Guardrail ID
+  - BedrockGuardrailVersion: Bedrock Guardrail Version
 
 API Gateway情報を変数として格納：
 

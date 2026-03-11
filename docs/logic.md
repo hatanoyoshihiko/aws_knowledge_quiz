@@ -36,7 +36,7 @@
 | 変数名 | 説明 | デフォルト値 |
 | --- | --- | --- |
 | STAGE_NAME | ステージ名 | dev |
-| BEDROCK_MODEL_ID | Bedrockモデル | jp.anthropic.claude-sonnet-4-5-20250929-v1:0 |
+| BEDROCK_MODEL_ID | Bedrockモデル | jp.anthropic.claude-sonnet-4-6 |
 | BEDROCK_GUARDRAIL_IDENTIFIER | Guardrail ID | （空） |
 | BEDROCK_GUARDRAIL_VERSION | Guardrail Version | DRAFT |
 | QUIZ_TABLE_NAME | クイズテーブル名 | （自動生成） |
