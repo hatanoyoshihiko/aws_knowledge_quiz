@@ -7,7 +7,7 @@
 | 関数名 | タイムアウト | メモリ | 役割 | エンドポイント |
 | --- | --- | --- | --- | --- |
 | StartQuizGenerationFunction | 15秒 | 256MB | 非同期クイズ生成開始 | GET /quiz/generate |
-| GetNextQuizFunction | 60秒 | 512MB | クイズ生成実行 | GET /quiz/next |
+| GetNextQuizFunction | 60秒 | 512MB | クイズ生成（title+body+rubric+tags） | （内部呼び出し） |
 
 ### クイズ取得関連
 
@@ -42,12 +42,14 @@
 | QUIZ_TABLE_NAME | クイズテーブル名 | （自動生成） |
 | MAX_ATTEMPTS | 最大試行回数 | 1 |
 | MAX_MCP_REFRESH | MCP再試行回数 | 0 |
-| DUPLICATE_HINT_WINDOW | 重複回避ウィンドウ | 20 |
-| SOURCE_CONTEXT_MAX_CHARS | MCP最大文字数 | 2200 |
+| DUPLICATE_HINT_WINDOW | 重複回避ウィンドウ | 15 |
+| SOURCE_CONTEXT_MAX_CHARS | MCP最大文字数 | 1500 |
 | SOURCE_SNIPPETS_MAX | MCP最大スニペット数 | 3 |
 | MCP_ENDPOINT | MCP Server URL | https://knowledge-mcp.global.api.aws |
 | HOST_KEY | Host認証キー | （デプロイ時指定） |
 | LOG_LEVEL | ログレベル | INFO |
+| BEDROCK_MAX_TOKENS_JUDGE | 採点時の最大トークン数 | 3000 |
+| BEDROCK_MAX_TOKENS_EXAMPLE | 回答例生成時の最大トークン数 | 2000 |
 
 ### 関数固有の環境変数
 
@@ -175,8 +177,8 @@ Bedrock は各 P について「満たしているか（met）」を判定し、
 1. カーソル取得（カテゴリ×レベル）
 2. MCP検索クエリの生成
 3. AWS Knowledge MCP Serverから情報取得
-4. 最近20問のヒント取得
-5. Bedrock Prompt Managementでクイズ生成
+4. 最近15問のヒント取得
+5. Bedrock Prompt Managementでクイズ生成（title+body+rubric+tags）
 6. ハッシュ値による重複チェック
 7. DynamoDBに保存
 8. カーソル更新

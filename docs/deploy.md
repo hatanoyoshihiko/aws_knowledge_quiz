@@ -17,6 +17,7 @@ export BACKEND_STACK_NAME=aws-knowledge-quiz-backend
 export AWS_PROFILE=YOUR_PROFILE
 export API_HEADER_VALUE=YOUR_SECRET_HEADER_VALUE　# For Lambda Authorizer
 export HOST_KEY=YOUR_QUIZ_HOST_KEY
+export BEDROCK_MODEL_ID=jp.anthropic.claude-sonnet-4-6  # Optional
 ```
 
 ## デプロイ順序
@@ -76,7 +77,7 @@ sam deploy \
     FrontendOrigin="$CLOUDFRONT_URL" \
     CloudFrontToApiHeaderValue="$API_HEADER_VALUE" \
     HostKey="$HOST_KEY" \
-    BedrockModelId=jp.anthropic.claude-sonnet-4-6
+    BedrockModelId="${BEDROCK_MODEL_ID:-jp.anthropic.claude-sonnet-4-6}"
 ```
 
 デプロイオプション：
@@ -84,10 +85,9 @@ sam deploy \
 - FrontendOrigin: CloudFrontのURL（CORS設定用）
 - CloudFrontToApiHeaderValue: CloudFrontからAPI Gatewayへの認証用ヘッダー値（任意の秘密文字列）
 - HostKey: 出題者側UIで入力するキー（任意の値、例: 123456789）
-- BedrockModelId: モデルID　（例：jp.anthropic.claude-sonnet-4-6）
-- オプション
-  - BedrockGuardrailIdentifier: Bedrock Guardrail ID
-  - BedrockGuardrailVersion: Bedrock Guardrail Version
+- BedrockModelId: モデルID（デフォルト: jp.anthropic.claude-sonnet-4-6）
+- BedrockGuardrailIdentifier: Bedrock Guardrail ID（オプション）
+- BedrockGuardrailVersion: Bedrock Guardrail Version（オプション、デフォルト: DRAFT）
 
 API Gateway情報を変数として格納：
 
@@ -195,6 +195,7 @@ aws cloudfront create-invalidation \
 | FrontendOrigin | CloudFrontのURL（CORS設定用） | 必須 |
 | CloudFrontToApiHeaderValue | CloudFrontからAPI Gatewayへの認証用ヘッダー値 | 必須 |
 | HostKey | 出題者側UIで入力するキー | 必須 |
+| BedrockModelId | Bedrockモデル | jp.anthropic.claude-sonnet-4-6 |
 | BedrockGuardrailIdentifier | Bedrock Guardrail ID | （オプション） |
 | BedrockGuardrailVersion | Bedrock Guardrail Version | DRAFT |
 

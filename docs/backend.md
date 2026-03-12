@@ -7,14 +7,14 @@
 **処理フロー**:
 1. MCP検索クエリの決定的生成（カーソルベース）
 2. AWS Knowledge MCP Serverから情報取得
-3. Bedrock Prompt Managementでクイズ生成
+3. Bedrock Prompt Managementでクイズ生成（title+body+rubric+tags）
 4. 重複チェックと保存（ハッシュ値による条件付き書き込み）
 5. カーソル更新（次回は異なるクエリを使用）
 
 **パフォーマンス設定**:
 - Lambda実行時間: 60秒、メモリ: 512MB
 - Bedrock: MaxTokens 3500、Temperature 0.15
-- MCP: 最大3件のスニペット、合計2200文字以内
+- MCP: 最大3件のスニペット、合計1500文字以内
 
 詳細は [クイズ生成の仕組み](./quiz.md) を参照。
 

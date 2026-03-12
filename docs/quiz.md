@@ -142,20 +142,20 @@ snippets = mcp_client.search(
     max_snippets=3  # SOURCE_SNIPPETS_MAX
 )
 
-# スニペットを結合（最大2200文字）
+# スニペットを結合（最大1500文字）
 source_context = build_source_context(snippets)
-# SOURCE_CONTEXT_MAX_CHARS: 2200
+# SOURCE_CONTEXT_MAX_CHARS: 1500
 ```
 
 #### ステップ4: 重複回避ヒントの取得
 
 ```python
-# 最近20問のヒントを取得
-recent_hints = get_recent_hints(limit=20)  # DUPLICATE_HINT_WINDOW
+# 最近15問のヒントを取得
+recent_hints = get_recent_hints(limit=15)  # DUPLICATE_HINT_WINDOW
 
 # ヒント文字列を構築
 avoid_hint = "\n".join([
-    f"- {h['title']} (tags: {h['tags']}, points: {h['must_points']})"
+    f"- {h['title']} (tags: {h['tags']})"
     for h in recent_hints
 ])
 ```
@@ -329,16 +329,15 @@ DynamoDB条件付き書き込み:
 - タイトル、本文、必須要点が完全に同一のクイズを排除
 - DynamoDBのアトミック操作で確実に重複を防止
 
-### 3段階目: 最近20問のヒント
+### 3段階目: 最近15問のヒント
 
 **目的**: 類似問題の生成を回避
 
 **仕組み**:
 ```
-Bedrockに最近20問の情報を渡す:
+Bedrockに最近15問の情報を渡す:
   - タイトル
   - タグ
-  - 論点（mustHavePoints）
 
 Bedrockが類似問題を避けるように生成
 ```
@@ -346,9 +345,9 @@ Bedrockが類似問題を避けるように生成
 **ヒント例**:
 ```
 最近の出題:
-- IAMポリシーの評価順序 (tags: iam,policy, points: 明示的Deny優先,デフォルトDeny,...)
-- S3バケットポリシーの設定 (tags: s3,policy, points: Principal,Action,Resource,...)
-- ...（最大20問）
+- IAMポリシーの評価順序 (tags: iam,policy)
+- S3バケットポリシーの設定 (tags: s3,policy)
+- ...（最大15問）
 
 これらと異なる観点・論点のクイズを生成してください。
 ```
@@ -457,7 +456,7 @@ QuizPrompt:
 | 項目 | 値 | 説明 |
 | --- | --- | --- |
 | SOURCE_SNIPPETS_MAX | 3 | 取得するスニペット数 |
-| SOURCE_CONTEXT_MAX_CHARS | 2200 | 合計文字数制限 |
+| SOURCE_CONTEXT_MAX_CHARS | 1500 | 合計文字数制限 |
 | SEARCH_TOP_K | 2 | search_documentationの上位件数 |
 | READ_TOP_K | 2 | read_documentationの上位件数 |
 
@@ -465,7 +464,7 @@ QuizPrompt:
 
 | 項目 | 値 | 説明 |
 | --- | --- | --- |
-| DUPLICATE_HINT_WINDOW | 20 | 最近何問のヒントを使用するか |
+| DUPLICATE_HINT_WINDOW | 15 | 最近何問のヒントを使用するか |
 | MAX_ATTEMPTS | 1 | 同一MCP検索結果での再試行回数 |
 | MAX_MCP_REFRESH | 0 | 異なるMCPクエリでの再試行回数 |
 
@@ -476,7 +475,7 @@ QuizPrompt:
 **原因**: MCP検索やBedrock生成に時間がかかっている
 
 **対策**:
-1. SOURCE_CONTEXT_MAX_CHARSを減らす（2200 → 1500）
+1. SOURCE_CONTEXT_MAX_CHARSを減らす（1500 → 1000）
 2. SOURCE_SNIPPETS_MAXを減らす（3 → 2）
 3. Lambdaメモリを増やす（512MB → 1024MB）
 
@@ -485,7 +484,7 @@ QuizPrompt:
 **原因**: カーソルが正しく更新されていない、またはヒントが不足
 
 **対策**:
-1. DUPLICATE_HINT_WINDOWを増やす（20 → 30）
+1. DUPLICATE_HINT_WINDOWを増やす（15 → 30）
 2. QUERY_COMPONENTSに新しいサービス・トピックを追加
 3. Temperatureを上げる（0.15 → 0.25）
 

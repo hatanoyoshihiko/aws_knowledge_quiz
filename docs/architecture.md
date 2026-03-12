@@ -212,17 +212,17 @@ sequenceDiagram
 
   NQ->>MCP: search_documentation(query)
 
-  MCP-->>NQ: スニペット×3（最大2200文字）
+  MCP-->>NQ: スニペット×3（最大1500文字）
 
 
-  NQ->>DB: 最近20問のヒント取得
+  NQ->>DB: 最近15問のヒント取得
 
-  DB-->>NQ: タイトル、タグ、論点
+  DB-->>NQ: タイトル、タグ
 
 
   NQ->>BR: Prompt Management<br/>+ source_context<br/>+ avoid_duplicate_hint
 
-  BR-->>NQ: クイズJSON（3500トークン）
+  BR-->>NQ: クイズJSON（title+body+rubric+tags）<br/>約3500トークン
 
 
   NQ->>NQ: ハッシュ値生成<br/>（title+body+mustPoints）
