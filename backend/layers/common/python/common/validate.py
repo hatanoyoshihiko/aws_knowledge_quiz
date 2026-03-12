@@ -227,8 +227,8 @@ def _validate_points(points: Any, *, path: str, min_items: int, max_items: int) 
         label2 = _sanitize_text(_strip(label))
         if not label2:
             raise SchemaError(f"{path}[{idx}].label empty")
-        if len(label2) > 60:
-            raise SchemaError(f"{path}[{idx}].label too long (max 60)")
+        if len(label2) > 40:  # 60 → 40に短縮
+            raise SchemaError(f"{path}[{idx}].label too long (max 40)")
 
         notes = p.get("notes")
         if not _is_str(notes):
@@ -236,16 +236,24 @@ def _validate_points(points: Any, *, path: str, min_items: int, max_items: int) 
         notes2 = _sanitize_text(_strip(notes))
         if not notes2:
             raise SchemaError(f"{path}[{idx}].notes empty")
-        if len(notes2) > 120:
-            raise SchemaError(f"{path}[{idx}].notes too long (max 120)")
+        if len(notes2) > 80:  # 120 → 80に短縮
+            raise SchemaError(f"{path}[{idx}].notes too long (max 80)")
 
         keywords_any = _validate_keywords_any(p.get("keywords_any", []), path=f"{path}[{idx}].keywords_any")
+        
+        # keywords_anyの最大長を20文字に制限
+        keywords_any_short = []
+        for kw in keywords_any:
+            if len(kw) > 20:
+                keywords_any_short.append(kw[:20])
+            else:
+                keywords_any_short.append(kw)
 
         out.append(
             {
                 "id": pid2,
                 "label": label2,
-                "keywords_any": keywords_any,
+                "keywords_any": keywords_any_short,
                 "notes": notes2,
             }
         )
@@ -497,6 +505,45 @@ def validate_judgment(obj: Dict[str, Any], rubric: Dict[str, Any]) -> Dict[str, 
 
 # Backward compatibility for british spelling
 validate_judgement = validate_judgment
+
+
+# -----------------------------
+# rubric validator (for separate rubric generation)
+# -----------------------------
+
+def validate_rubric(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate rubric-only JSON output from Bedrock.
+    Returns normalized rubric dict.
+    """
+    if not _is_dict(obj):
+        raise SchemaError("Rubric output must be object")
+
+    expected_answer = _require_str(
+        obj,
+        "expectedAnswer",
+        min_len=1,
+        max_len=LIMITS["expected_answer_max"],
+    )
+
+    must_points_raw = _require_list(obj, "mustHavePoints")
+    must_points = _validate_points(must_points_raw, path="mustHavePoints", min_items=4, max_items=6)
+
+    nice_points_raw = obj.get("niceToHavePoints", [])
+    nice_points = _validate_points(nice_points_raw, path="niceToHavePoints", min_items=0, max_items=6) if nice_points_raw else []
+
+    wrong_claims_raw = obj.get("commonWrongClaims", [])
+    wrong_claims = _validate_points(wrong_claims_raw, path="commonWrongClaims", min_items=0, max_items=6) if wrong_claims_raw else []
+
+    scoring_policy = _validate_scoring_policy(_require_key(obj, "scoringPolicy"), must_total=len(must_points))
+
+    return {
+        "expectedAnswer": expected_answer,
+        "mustHavePoints": must_points,
+        "niceToHavePoints": nice_points,
+        "commonWrongClaims": wrong_claims,
+        "scoringPolicy": scoring_policy,
+    }
 
 
 # -----------------------------
