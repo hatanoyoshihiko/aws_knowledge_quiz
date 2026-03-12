@@ -209,3 +209,8 @@ __marimo__/
 # SAM
 .aws-sam
 .kiro
+
+# Local Environments
+.bashrc
+.env
+.tmux.conf
