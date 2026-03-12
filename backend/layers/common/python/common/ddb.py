@@ -25,6 +25,64 @@ class QuizRepo:
         resp = self.table.get_item(Key={"QuestionHash": question_hash})
         return resp.get("Item")
 
+    def update_rubric(self, question_hash: str, rubric: dict) -> bool:
+        """
+        指定されたQuestionHashのアイテムにRubricを追加/更新する
+        
+        Args:
+            question_hash: 更新対象のQuestionHash
+            rubric: 保存するrubricデータ
+        
+        Returns:
+            bool: 更新成功時True、アイテムが存在しない場合False
+        """
+        try:
+            self.table.update_item(
+                Key={"QuestionHash": question_hash},
+                UpdateExpression="SET Rubric = :rubric, UpdatedAt = :updated",
+                ConditionExpression="attribute_exists(QuestionHash)",
+                ExpressionAttributeValues={
+                    ":rubric": rubric,
+                    ":updated": now_iso_jst(),
+                },
+            )
+            return True
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return False
+            raise
+
+    def get_by_hash_with_retry(self, question_hash: str, max_retries: int = 5, wait_seconds: float = 3.0) -> dict | None:
+        """
+        Rubricが完成するまで待機してアイテムを取得
+        
+        Args:
+            question_hash: 取得対象のQuestionHash
+            max_retries: 最大リトライ回数
+            wait_seconds: リトライ間隔（秒）
+        
+        Returns:
+            dict | None: アイテム（Rubric完成済み）、またはNone
+        """
+        import time
+        
+        for attempt in range(max_retries + 1):
+            item = self.get_by_hash(question_hash)
+            
+            if not item:
+                return None
+            
+            # Rubricが存在すればOK
+            if item.get("Rubric"):
+                return item
+            
+            # 最後の試行でなければ待機
+            if attempt < max_retries:
+                time.sleep(wait_seconds)
+        
+        # Rubric未完成のまま返す
+        return item
+
     def get_recent_hints(self, limit: int) -> dict:
         """
         直近N件から重複回避ヒントを組み立てる。

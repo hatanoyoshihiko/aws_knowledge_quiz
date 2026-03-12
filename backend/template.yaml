@@ -195,14 +195,179 @@ Resources:
         - arm64
 
   # Bedrockのプロンプトマネジメント定義
+  
+  # クイズ問題文生成用プロンプト（title + body + tags）
+  QuizQuestionPrompt:
+    Type: AWS::Bedrock::Prompt
+    Properties:
+      Name: !Sub "${AWS::StackName}-quiz-question-prompt"
+      Description: "AWS quiz question generation prompt (title + body only)"
+      Variants:
+        - Name: "default"
+          ModelId: !Ref BedrockModelId
+          TemplateType: "CHAT"
+          InferenceConfiguration:
+            Text:
+              MaxTokens: 1000
+              Temperature: 0.15
+          TemplateConfiguration:
+            Chat:
+              InputVariables:
+                - Name: "category"
+                - Name: "level"
+                - Name: "avoid_duplicate_hint"
+                - Name: "question_style"
+                - Name: "style_guidance"
+                - Name: "source_context"
+              System:
+                - Text: |
+                    AWS教育用クイズ作成者。SOURCE_CONTEXTのみを根拠に、日本語で問題文を生成。
+                    
+                    【重要】出力形式:
+                    - 純粋なJSONオブジェクトのみ出力
+                    - コードフェンス(```)は絶対に使用禁止
+                    - {で始まり}で終わる
+                    
+                    【絶対禁止事項】:
+                    - 選択肢（A/B/C/D、1/2/3/4など）を含む問題は絶対禁止
+                    - 「どれ？」「どちら？」「次のうち」などの選択を促す表現は絶対禁止
+                    - YES/NO形式の問題は絶対禁止
+                    - 正誤判定（○×）形式の問題は絶対禁止
+                    
+                    【必須要件】:
+                    - SOURCE_CONTEXTにない事実は断定しない
+                    - level: 100=基礎、200=設計、300=実装、400=専門家
+                    - 必ず記述式で具体的な説明を求める問題にする
+                    - 「説明せよ」「答えよ」「述べよ」「列挙せよ」など記述を求める表現を使う
+                    - 複数の観点（①②③など）を答えさせる形式を推奨
+                    - 簡潔に書く（冗長な説明を避ける）
+                    - bodyは途中で切らず、必ず文を完結させる
+                    - 文面はジョークを効かせて、ユーモアな表現とする
+              Messages:
+                - Role: "user"
+                  Content:
+                    - Text: |
+                        category={{category}}, level={{level}}, style={{question_style}}
+                        
+                        【絶対禁止】:
+                        - A/B/C/D形式の選択肢を含めること
+                        - 「どれ？」「どちら？」「次のうち」などの選択を促す表現
+                        - YES/NO、○×などの二択問題
+                        
+                        【必須】:
+                        - 記述式で具体的な説明を求める問題文にする
+                        - 「①〜、②〜、③〜を説明せよ」のように複数観点を答えさせる形式を推奨
+                        - 「なぜ〜か説明せよ」「どのように〜か述べよ」など記述を求める
+                        
+                        制約（厳守）:
+                        - title≤80字, body≤300字, sourceSummary≤250字
+                        - 【重要】純粋なJSONのみ出力（```は絶対禁止）
+                        - 極力簡潔に（生成速度最優先）
+                        - bodyは必ず完結させる（途中で切らない）
+                        
+                        重複回避:
+                        {{avoid_duplicate_hint}}
+                        
+                        出題方針:
+                        {{style_guidance}}
+                        
+                        根拠:
+                        {{source_context}}
+                        
+                        【良い例】
+                        body: "新人エンジニアが「STSの一時認証情報は永続的に有効」と説明した。①この説明の誤り、②一時認証情報の正しい特性、③セキュリティ上の利点を説明せよ。"
+                        
+                        【悪い例（絶対禁止）】
+                        body: "この説明の誤りはどれでしょう？ A. 〜 B. 〜 C. 〜 D. 〜"
+                        
+                        【出力例】{で始まり}で終わる純粋なJSON:
+                        {"title":"","body":"","category":"","level":0,"sourceSummary":"","tags":[]}
+  
+  # Rubric生成用プロンプト
+  QuizRubricPrompt:
+    Type: AWS::Bedrock::Prompt
+    Properties:
+      Name: !Sub "${AWS::StackName}-quiz-rubric-prompt"
+      Description: "AWS quiz rubric generation prompt (scoring criteria)"
+      Variants:
+        - Name: "default"
+          ModelId: !Ref BedrockModelId
+          TemplateType: "CHAT"
+          InferenceConfiguration:
+            Text:
+              MaxTokens: 2000
+              Temperature: 0.15
+          TemplateConfiguration:
+            Chat:
+              InputVariables:
+                - Name: "category"
+                - Name: "level"
+                - Name: "title"
+                - Name: "body"
+                - Name: "source_context"
+              System:
+                - Text: |
+                    AWS教育用クイズの採点基準（rubric）作成者。
+                    
+                    【重要】出力形式:
+                    - 純粋なJSONオブジェクトのみ出力
+                    - コードフェンス(```)は絶対に使用禁止
+                    - {で始まり}で終わる
+                    
+                    必須ルール:
+                    - SOURCE_CONTEXTとQUESTIONに基づいて採点基準を作成
+                    - rubric必須（Must/Nice/Wrong/ScoringPolicy）
+                    - correct=100%、close=80%を満たすScoringPolicy
+                    - mustHavePointsは4〜6個
+                    - 記述式回答を前提とした採点基準を作成
+                    - 選択式（A/B/C/D）の採点基準は禁止
+                    
+                    【簡潔化ルール（重要）】:
+                    - label: 端的に（例: 「Governanceモードの削除可能性」）
+                    - notes: 採点の要点のみ（例: 「バイパス権限で削除可能と説明」）
+                    - 冗長な表現を避ける（「〜への言及」「〜の指摘」「〜しているか確認」など不要）
+                    - 文字数を最小限に（生成速度最優先）
+                    
+                    各ポイント構造（厳守）:
+                    - id: 文字列（p1, n1, w1など）
+                    - label: 文字列（40字以内、簡潔に）
+                    - keywords_any: 文字列の配列（各20字以内）
+                    - notes: 文字列（80字以内、要点のみ）
+              Messages:
+                - Role: "user"
+                  Content:
+                    - Text: |
+                        category={{category}}, level={{level}}
+                        
+                        【問題】
+                        title: {{title}}
+                        body: {{body}}
+                        
+                        制約（厳守）:
+                        - expectedAnswer≤400字
+                        - label≤40字（簡潔に）, notes≤80字（簡潔に）, keywords_any各≤20字
+                        - mustHavePointsは4〜6個
+                        - 【重要】純粋なJSONのみ出力（```は絶対禁止）
+                        - 記述式回答を前提とした採点基準を作成
+                        - 【重要】極力簡潔に（生成速度最優先、冗長な説明を避ける）
+                        - notesは採点の要点のみ記載（詳細な説明は不要）
+                        - labelは端的に（「〜への言及」「〜の指摘」など冗長な表現を避ける）
+                        
+                        根拠:
+                        {{source_context}}
+                        
+                        【出力例】{で始まり}で終わる純粋なJSON:
+                        {"expectedAnswer":"","mustHavePoints":[{"id":"p1","label":"","keywords_any":[""],"notes":""}],"niceToHavePoints":[{"id":"n1","label":"","keywords_any":[""],"notes":""}],"commonWrongClaims":[{"id":"w1","label":"","keywords_any":[""],"notes":""}],"scoringPolicy":{"correct_threshold":1.0,"close_threshold":0.8,"must_points_total":4,"close_if_must_points_met_at_least":3,"correct_if_must_points_met_at_least":4}}
+  
+  # 旧プロンプト（後方互換用、将来削除予定）
   QuizPrompt:
     Type: AWS::Bedrock::Prompt
     Properties:
       Name: !Sub "${AWS::StackName}-quiz-prompt"
-      Description: "AWS quiz generation prompt (managed)"
+      Description: "AWS quiz generation prompt (managed) - DEPRECATED"
       Variants:
         - Name: "default"
-          ModelId: !Ref BedrockModelId # ← 生成AIリソースは「モデル」
+          ModelId: !Ref BedrockModelId
           TemplateType: "CHAT"
           InferenceConfiguration:
             Text:
@@ -274,12 +439,26 @@ Resources:
       PromptArn: !GetAtt QuizPrompt.Arn
       Description: !GetAtt QuizPrompt.UpdatedAt # Prompt更新で差分が出て「最新version」が発行される
 
+  QuizQuestionPromptVersion:
+    Type: AWS::Bedrock::PromptVersion
+    Properties:
+      PromptArn: !GetAtt QuizQuestionPrompt.Arn
+      Description: !Sub "Updated at ${AWS::StackName} - No multiple choice"  # 強制的に新バージョン作成
+
+  QuizRubricPromptVersion:
+    Type: AWS::Bedrock::PromptVersion
+    Properties:
+      PromptArn: !GetAtt QuizRubricPrompt.Arn
+      Description: !Sub "Updated at ${AWS::StackName} - Concise rubric v2"  # 強制的に新バージョン作成
+
   GetNextQuizFunction:
     Type: AWS::Serverless::Function
     Properties:
       Environment:
         Variables:
           BEDROCK_PROMPT_ARN: !Ref QuizPromptVersion
+          BEDROCK_QUESTION_PROMPT_ARN: !Ref QuizQuestionPromptVersion
+          GENERATE_RUBRIC_FUNCTION_NAME: !Ref GenerateRubricFunction
       Handler: app.lambda_handler
       CodeUri: src/get_next_quiz/
       Timeout: 60
@@ -289,6 +468,8 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref QuizHistoryTable
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateRubricFunction
         - Statement:
             - Effect: Allow
               Action:
@@ -304,6 +485,30 @@ Resources:
             ApiId: !Ref QuizApi
             Path: /quiz/next
             Method: GET
+
+  GenerateRubricFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-generate-rubric"
+      Handler: app.lambda_handler
+      CodeUri: src/generate_rubric/
+      Timeout: 30
+      MemorySize: 512
+      Layers:
+        - !Ref CommonLayer
+      Environment:
+        Variables:
+          BEDROCK_RUBRIC_PROMPT_ARN: !Ref QuizRubricPromptVersion
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref QuizHistoryTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:RenderPrompt
+                - bedrock:ApplyGuardrail
+              Resource: "*"
 
   StartQuizGenerationFunction:
     Type: AWS::Serverless::Function

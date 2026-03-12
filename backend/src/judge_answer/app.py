@@ -228,9 +228,20 @@ def lambda_handler(event, context):
         question_hash = question_id.strip()
 
         repo = QuizRepo(QUIZ_TABLE_NAME)
-        item = repo.get_by_hash(question_hash)
+        
+        # Rubric完成を待機して取得（最大15秒）
+        item = repo.get_by_hash_with_retry(question_hash, max_retries=5, wait_seconds=3.0)
+        
         if not item:
             raise AppError("NotFound", "Question not found", 404)
+        
+        # Rubricが未完成の場合はエラー
+        if not item.get("Rubric"):
+            raise AppError(
+                "RubricNotReady",
+                "採点基準がまだ準備中です。数秒後に再度お試しください。",
+                503
+            )
 
         rubric = item["Rubric"]
         question_body = item["Question"]["Body"]

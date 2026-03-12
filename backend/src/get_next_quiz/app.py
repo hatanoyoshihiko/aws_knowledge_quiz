@@ -30,10 +30,14 @@ from common.errors import AppError, ParseError, SchemaError, SemanticError
 from common.mcp import McpClient
 from common.normalize import question_hash
 from common.schema import ALLOWED_CATEGORIES, ALLOWED_LEVELS, LIMITS
-from common.validate import parse_json_strict, validate_generation
+from common.validate import parse_json_strict
+
+# Lambda client for async invocation
+_lambda_client = boto3.client('lambda')
 
 # Load JSON schema for structured output
 _QUIZ_SCHEMA = None
+_QUESTION_SCHEMA = None
 
 def _load_quiz_schema() -> dict:
     global _QUIZ_SCHEMA
@@ -42,6 +46,72 @@ def _load_quiz_schema() -> dict:
         with open(schema_path, "r", encoding="utf-8") as f:
             _QUIZ_SCHEMA = json.load(f)
     return _QUIZ_SCHEMA
+
+def _load_question_schema() -> dict:
+    """Load question-only schema (title + body + tags)"""
+    global _QUESTION_SCHEMA
+    if _QUESTION_SCHEMA is None:
+        # Simplified schema for question generation
+        _QUESTION_SCHEMA = {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "maxLength": 80},
+                "body": {"type": "string", "maxLength": 300},
+                "category": {"type": "string", "enum": list(ALLOWED_CATEGORIES)},
+                "level": {"type": "integer", "enum": list(ALLOWED_LEVELS)},
+                "sourceSummary": {"type": "string", "maxLength": 250},
+                "tags": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["title", "body", "category", "level", "sourceSummary", "tags"],
+            "additionalProperties": False
+        }
+    return _QUESTION_SCHEMA
+
+
+def _validate_question(obj: dict) -> dict:
+    """Validate question-only generation (without rubric)"""
+    from common.validate import _require_str, _require_int, _is_list, _is_str, _sanitize_text, _strip
+    
+    title = _require_str(obj, "title", min_len=1, max_len=LIMITS["title_max"])
+    body = _require_str(obj, "body", min_len=1, max_len=LIMITS["body_max"])
+    
+    category = _require_str(obj, "category", min_len=1, max_len=32)
+    if category not in ALLOWED_CATEGORIES:
+        raise SchemaError(f"category not allowed: {category}")
+    
+    level = _require_int(obj, "level")
+    if level not in ALLOWED_LEVELS:
+        raise SchemaError(f"level not allowed: {level}")
+    
+    source_summary = _require_str(obj, "sourceSummary", min_len=1, max_len=LIMITS["source_summary_max"])
+    
+    tags_raw = obj.get("tags", [])
+    if tags_raw is None:
+        tags_raw = []
+    if not _is_list(tags_raw):
+        raise SchemaError("tags must be list")
+    if len(tags_raw) > 20:
+        raise SchemaError("tags too many items (max 20)")
+    
+    tags = []
+    for i, t in enumerate(tags_raw):
+        if not _is_str(t):
+            raise SchemaError(f"tags[{i}] must be string")
+        t2 = _sanitize_text(_strip(t))
+        if not t2:
+            raise SchemaError(f"tags[{i}] empty")
+        if len(t2) > 40:
+            raise SchemaError(f"tags[{i}] too long (max 40)")
+        tags.append(t2)
+    
+    return {
+        "title": title,
+        "body": body,
+        "category": category,
+        "level": level,
+        "sourceSummary": source_summary,
+        "tags": tags,
+    }
 
 # -----------------------------
 # MCP query components (fast + deterministic diversification)
@@ -390,20 +460,30 @@ def _mask(s: str | None, keep: int = 6) -> str:
     return s[:keep] + "..."
 
 
-def _resolve_effective_prompt_arn(bedrock: BedrockClient, request_id: str) -> str:
-    env_prompt_arn = (BEDROCK_PROMPT_ARN or "").strip()
+def _resolve_effective_prompt_arn(bedrock: BedrockClient, request_id: str, prompt_type: str = "question") -> str:
+    """
+    Resolve effective prompt ARN for question or rubric generation
+    
+    Args:
+        bedrock: BedrockClient instance
+        request_id: Request ID for logging
+        prompt_type: "question" or "rubric" or "full" (legacy)
+    """
+    if prompt_type == "question":
+        env_key = "BEDROCK_QUESTION_PROMPT_ARN"
+    elif prompt_type == "rubric":
+        env_key = "BEDROCK_RUBRIC_PROMPT_ARN"
+    else:  # "full" or legacy
+        env_key = "BEDROCK_PROMPT_ARN"
+    
+    env_prompt_arn = os.environ.get(env_key, "").strip()
     env_prompt_name = (BEDROCK_PROMPT_NAME or "").strip()
 
-    if not env_prompt_arn:
-        env_prompt_arn = (os.environ.get("BEDROCK_PROMPT_ARN") or "").strip()
-    if not env_prompt_name:
-        env_prompt_name = (os.environ.get("BEDROCK_PROMPT_NAME") or "").strip()
-
     print(
-        "[CFG] prompt config",
+        f"[CFG] {prompt_type} prompt config",
         {
             "requestId": request_id,
-            "BEDROCK_PROMPT_ARN": _mask(env_prompt_arn, 18),
+            f"{env_key}": _mask(env_prompt_arn, 18),
             "BEDROCK_PROMPT_NAME": env_prompt_name,
         },
     )
@@ -414,25 +494,25 @@ def _resolve_effective_prompt_arn(bedrock: BedrockClient, request_id: str) -> st
     if not env_prompt_name:
         raise AppError(
             "ConfigError",
-            "Missing BEDROCK_PROMPT_ARN (and BEDROCK_PROMPT_NAME is empty)",
+            f"Missing {env_key} (and BEDROCK_PROMPT_NAME is empty)",
             500,
         )
 
     try:
         resolved = bedrock.resolve_latest_prompt_version_arn(prompt_name=env_prompt_name)
         print(
-            "[INFO] resolved latest prompt version arn",
+            f"[INFO] resolved latest {prompt_type} prompt version arn",
             {"requestId": request_id, "promptArn": _mask(resolved, 18)},
         )
         return resolved
     except Exception as ex:
         print(
-            "[ERROR] failed to resolve latest prompt version arn",
+            f"[ERROR] failed to resolve latest {prompt_type} prompt version arn",
             {"requestId": request_id, "error": repr(ex)},
         )
         raise AppError(
             "ConfigError",
-            "Missing BEDROCK_PROMPT_ARN (and failed to resolve from BEDROCK_PROMPT_NAME)",
+            f"Missing {env_key} (and failed to resolve from BEDROCK_PROMPT_NAME)",
             500,
         )
 
@@ -544,7 +624,7 @@ def lambda_handler(event, context):
 
         mcp = McpClient(MCP_ENDPOINT, MCP_API_KEY)
 
-        effective_prompt_arn = _resolve_effective_prompt_arn(bedrock, aws_request_id)
+        effective_prompt_arn = _resolve_effective_prompt_arn(bedrock, aws_request_id, "question")
 
         hints = repo.get_recent_hints(DUPLICATE_HINT_WINDOW)
         avoid_hint = _make_avoid_hint(hints)
@@ -589,9 +669,7 @@ def lambda_handler(event, context):
                     "source_context": str(source_context),
                 }
 
-                # Note: Structured Output is not supported with Prompt Management
-                # Using optimized prompt instead
-                
+                # Generate question only (title + body + tags)
                 raw = bedrock.converse_prompt_json(
                     prompt_arn=effective_prompt_arn,
                     prompt_variables=prompt_vars,
@@ -599,7 +677,7 @@ def lambda_handler(event, context):
 
                 raw_len = len(raw) if isinstance(raw, str) else -1
                 print(
-                    "[INFO] Bedrock returned (structured output)",
+                    "[INFO] Bedrock returned question (title+body)",
                     {"requestId": aws_request_id, "refresh": refresh, "attempt": attempt, "rawLen": raw_len},
                 )
 
@@ -616,11 +694,10 @@ def lambda_handler(event, context):
                         pass
 
                 try:
-                    # Structured Outputなのでコードフェンス救済は不要（念のため残す）
                     cleaned, reason = _rescue_json_text(raw if isinstance(raw, str) else "")
                     if reason:
                         print(
-                            "[INFO] rescued json text (should not happen with structured output)",
+                            "[INFO] rescued json text",
                             {
                                 "requestId": aws_request_id,
                                 "refresh": refresh,
@@ -629,7 +706,7 @@ def lambda_handler(event, context):
                             },
                         )
                     obj = parse_json_strict(cleaned if reason else raw, LIMITS["raw_json_max"])
-                    quiz = validate_generation(obj)
+                    question = _validate_question(obj)  # Validate question only
                 except (ParseError, SchemaError, SemanticError) as e:
                     print(
                         f"[WARN] generation failed ({e.code}): {e.message}",
@@ -639,25 +716,16 @@ def lambda_handler(event, context):
                         print(f"[WARN] raw(head): {raw[:300]}")
                     continue
 
-                safe_title = _sanitize_for_hash(quiz["title"])
-                safe_body = _sanitize_for_hash(quiz["body"])
-                safe_must_points = []
-                for p in quiz["rubric"]["mustHavePoints"]:
-                    safe_must_points.append(
-                        {
-                            "id": _sanitize_for_hash(p.get("id", "")),
-                            "label": _sanitize_for_hash(p.get("label", "")),
-                            "notes": _sanitize_for_hash(p.get("notes", "")),
-                            "keywords_any": [_sanitize_for_hash(x) for x in (p.get("keywords_any") or [])],
-                        }
-                    )
-
+                safe_title = _sanitize_for_hash(question["title"])
+                safe_body = _sanitize_for_hash(question["body"])
+                
+                # Generate temporary hash without rubric (will be same as final hash since rubric not used in hash)
                 qhash = question_hash(
-                    category=quiz["category"],
-                    level=int(quiz["level"]),
+                    category=question["category"],
+                    level=int(question["level"]),
                     title=safe_title,
                     body=safe_body,
-                    must_points=safe_must_points,
+                    must_points=[],  # No rubric yet
                 )
 
                 created_at = now_iso_jst()
@@ -667,11 +735,11 @@ def lambda_handler(event, context):
                     "GSI1PK": "RECENT",
                     "GSI1SK": created_at,
                     "Version": 1,
-                    "Category": quiz["category"],
-                    "Level": int(quiz["level"]),
+                    "Category": question["category"],
+                    "Level": int(question["level"]),
                     "Language": "ja",
-                    "Question": {"Title": quiz["title"], "Body": quiz["body"]},
-                    "Rubric": quiz["rubric"],
+                    "Question": {"Title": question["title"], "Body": question["body"]},
+                    # Rubric will be added later by GenerateRubricFunction
                     "SourceContext": {
                         "Provider": "aws-knowledge-mcp",
                         "RetrievedAt": created_at,
@@ -681,7 +749,7 @@ def lambda_handler(event, context):
                         ],
                     },
                     "CreatedAt": created_at,
-                    "Tags": quiz["tags"],
+                    "Tags": question["tags"],
                 }
 
                 item = _to_ddb_safe(item)
@@ -707,6 +775,35 @@ def lambda_handler(event, context):
                 )
 
                 if ok:
+                    # Invoke GenerateRubricFunction asynchronously
+                    generate_rubric_function = os.environ.get('GENERATE_RUBRIC_FUNCTION_NAME')
+                    if generate_rubric_function:
+                        try:
+                            rubric_payload = {
+                                "questionHash": qhash,
+                                "category": question["category"],
+                                "level": question["level"],
+                                "title": question["title"],
+                                "body": question["body"],
+                                "sourceContext": source_context,
+                                "requestId": aws_request_id,
+                            }
+                            _lambda_client.invoke(
+                                FunctionName=generate_rubric_function,
+                                InvocationType='Event',  # Async
+                                Payload=json.dumps(rubric_payload).encode('utf-8')
+                            )
+                            print(
+                                "[INFO] Started async rubric generation",
+                                {"requestId": aws_request_id, "questionHash": qhash},
+                            )
+                        except Exception as e:
+                            print(
+                                "[ERROR] Failed to invoke rubric generation",
+                                {"requestId": aws_request_id, "error": repr(e)},
+                            )
+                            # Continue anyway - rubric can be generated on-demand during judging
+                    
                     return _resp(
                         200,
                         {
