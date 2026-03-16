@@ -285,10 +285,10 @@ QUESTION_STYLES: list[tuple[str, str]] = [
 def _level_suffix(level: int) -> str:
     """Simplified level suffix for faster MCP search"""
     return {
-        100: "基礎",
-        200: "設計",
-        300: "実装",
-        400: "応用",
+        100: "AWS初心者向け。単一サービスの基本機能や用語を問う。",
+        200: "実務経験3年程度。サービスの設定や使い分けを問う。",
+        300: "実務経験7年程度。複数サービスの連携や制限事項を問う。",
+        400: "リードアーキテクトや上級者向け。障害対応、アーキテクチャ判断、トレードオフを問う。",
     }[level]
 
 
