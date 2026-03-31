@@ -6,8 +6,12 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 from decimal import Decimal
 import boto3
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 from common.bedrock import BedrockClient
 from common.config import (
@@ -170,9 +174,6 @@ def lambda_handler(event, context):
             )
             return {"statusCode": 404, "body": "Question not found"}
 
-    except Exception as e:
-        print("[ERROR] Unexpected exception in generate_rubric")
-        print("[ERROR] repr:", repr(e))
-        import traceback
-        traceback.print_exc()
+    except Exception:
+        logger.exception("Unexpected exception in generate_rubric")
         return {"statusCode": 500, "body": "Internal error"}

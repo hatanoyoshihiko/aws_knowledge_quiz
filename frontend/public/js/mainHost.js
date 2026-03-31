@@ -35,7 +35,7 @@ function setHostKeySafe(key) {
   }
   // フォールバック（mainHost.js内だけ）
   try {
-    localStorage.setItem(HOST_KEY_STORAGE, v);
+    sessionStorage.setItem(HOST_KEY_STORAGE, v);
   } catch (_) {}
 }
 
@@ -44,7 +44,7 @@ function getHostKeySafe() {
     return quizApi.getHostKey();
   }
   try {
-    return (localStorage.getItem(HOST_KEY_STORAGE) || "").trim();
+    return (sessionStorage.getItem(HOST_KEY_STORAGE) || "").trim();
   } catch (_) {
     return "";
   }

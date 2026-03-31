@@ -12,13 +12,13 @@ const HOST_KEY_STORAGE = "awsQuizHostKey";
 
 export function setHostKey(key) {
     try {
-        localStorage.setItem(HOST_KEY_STORAGE, String(key ?? "").trim());
+        sessionStorage.setItem(HOST_KEY_STORAGE, String(key ?? "").trim());
     } catch (_) {}
 }
 
 export function getHostKey() {
     try {
-        return(localStorage.getItem(HOST_KEY_STORAGE) || "").trim();
+        return(sessionStorage.getItem(HOST_KEY_STORAGE) || "").trim();
     } catch (_) {
         return "";
     }

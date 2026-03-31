@@ -3,9 +3,13 @@ from __future__ import annotations
 import os
 import json
 import hashlib
+import logging
 from decimal import Decimal
 
 import boto3
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 from urllib.parse import parse_qs
 
 from common.bedrock import BedrockClient
@@ -850,9 +854,6 @@ def lambda_handler(event, context):
         return _resp(e.status_code, {"error": {"code": e.code, "message": e.message}}, event)
     except (ParseError, SchemaError, SemanticError) as e:
         return _resp(e.status_code, {"error": {"code": e.code, "message": e.message}}, event)
-    except Exception as e:
-        print("[ERROR] Unexpected exception in get_next_quiz")
-        print("[ERROR] repr:", repr(e))
-        import traceback
-        traceback.print_exc()
+    except Exception:
+        logger.exception("Unexpected exception in get_next_quiz")
         return _resp(500, {"error": {"code": "InternalError", "message": "Unexpected error"}}, event)
